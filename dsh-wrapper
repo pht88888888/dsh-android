@@ -1,0 +1,3 @@
+#!/system/bin/sh
+# dsh-android wrapper: dsh -> node bin.js (termux-exec hook compat, no /usr/bin/env)
+exec /data/data/com.dsharnessmobile.shell/files/usr/bin/node /data/data/com.dsharnessmobile.shell/files/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js "$@"

@@ -547,12 +547,39 @@ class EngineManager(private val context: Context, private val pickToken: String?
     applyAssetPatchAppend("mobile-polish/cordis.append.yml", patch, "@dsh-mobile/mobile-polish")
   }
 
+  /**
+   * 修复 usr/bin/dsh（2026-08-26，插件市场安装失败根因）：
+   * 快照里 dsh 是软链 → lib/node_modules/@deepseek-ai/dsh/lib/bin.js，
+   * 其 shebang 为 `#!/usr/bin/env node`，Android 无 /usr/bin/env，且
+   * termux-exec hook 在 force 模式下把无法识别的非 ELF 脚本路由到
+   * linker64 → "bad ELF magic: 23212f75"。替换为 `#!/system/bin/sh`
+   * 包装器，直接 exec node bin.js（LD_LIBRARY_PATH/OPENSSL_CONF 由
+   * shellEnv 注入）。幂等：dsh 已是普通文件（非软链）→ 跳过。
+   */
+  private fun fixDshBin() {
+    try {
+      val dsh = File(usrDir, "bin/dsh")
+      if (!dsh.exists() || !Files.isSymbolicLink(dsh.toPath())) return
+      val node = nodeBin.absolutePath
+      val script = "#!/system/bin/sh\n" +
+        "# dsh-android wrapper: dsh -> node bin.js (no /usr/bin/env on Android)\n" +
+        "exec $node " + dshBin.absolutePath + " \"$@\"\n"
+      dsh.delete()
+      dsh.writeText(script)
+      if (!dsh.setExecutable(true)) Log.w(TAG, "dsh wrapper chmod failed")
+      Log.i(TAG, "dsh bin fixed: symlink -> wrapper")
+    } catch (t: Throwable) {
+      Log.e(TAG, "dsh bin fix failed (non-fatal): " + t.message)
+    }
+  }
+
   /** Start the dsh web engine from the embedded snapshot. */
   fun startEngine(port: Int = 3080): Boolean {
     // Bundled presets must be in place before every start attempt (idempotent;
     // also covers the upgrade-with-running-engine case via the cooldown bypass path).
     deployBundledPresets()
     deployMobilePolish()
+    fixDshBin()
     // LD_PRELOAD depends on the snapshot's termux-exec lib: when missing, every child exec fails,
     // and combined with the cooldown window that means a silent 90s engine outage — assert explicitly
     // before starting and fail loudly if absent.
