@@ -507,7 +507,29 @@ button[aria-label="有问题的回答"] {
 						if (!b) return;
 						hideHdMenu();
 						if (b.dataset.mpHd === "log" && logBtn) logBtn.click();
-						else if (b.dataset.mpHd === "snap" && snapEl) snapEl.click();
+						else if (b.dataset.mpHd === "snap" && snapEl) {
+						snapEl.click();
+						// 快照面板渲染在隐藏的 header 内（display:none），迁到 body 全屏显示
+						let snapTries = 0;
+						const snapTick = () => {
+							const overlay = document.querySelector(".u_overlay[data-undo-panel]");
+							if (!overlay) {
+								if (snapTries++ < 15) setTimeout(snapTick, 100);
+								return;
+							}
+							if (overlay.parentElement !== document.body) {
+								document.body.appendChild(overlay);
+							}
+							overlay.style.position = "fixed";
+							overlay.style.left = "0";
+							overlay.style.right = "0";
+							overlay.style.top = "0";
+							overlay.style.bottom = "0";
+							overlay.style.zIndex = "9999";
+							// 面板内部样式完全保留
+						};
+						snapTick();
+					}
 						else if (b.dataset.mpHd === "trace") {
 							const target = tabs.find((t) => t.getAttribute("aria-selected") !== "true");
 							if (target) target.click();
