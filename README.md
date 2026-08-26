@@ -1,36 +1,42 @@
-# dsh-mobile-apk — DeepSeek Harness Android Shell APK
+# dsh-android — DeepSeek Harness Android Shell
 
 [🌐 中文说明 / 中文 README](README.zh.md)
 
 ![DeepSeek Harness](https://img.shields.io/badge/DeepSeek_Harness-blue?style=flat&logo=DeepSeek&logoSize=auto&color=%232D5F9E)
 ![Android](https://img.shields.io/badge/Android-blue?style=flat&logo=Android&logoSize=auto&color=%2397CA00)
 
-
-> **dsh-mobile 生态** · [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-client-ui-responsive](https://github.com/kelai141/dsh-client-ui-responsive)（移动 UI）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）
-
-> ⚠️ **0.13.0-preview — preview release**: unstable, intended for community validation — do not rely on it in production.
-> - **ADB is not complete**: pairing / port auto-scan / execution are preview UI screens — the real ADB channel is under development and completes in the 0.13.0 official release.
-> - **Plugin-marketplace caveat**: the built-in marketplace covers many third-party plugins, and **most of them are likely unavailable or buggy on phones** (mobile vs desktop differ in WebView engine / filesystem / permission model / runtime). Mobile adaptation is long-term work — treat this beta as usability validation & feedback, not a production dependency. Report plugin issues to the [issue tracker](https://github.com/kelai141/dsh-mobile-apk/issues) with device model / version / reproduction steps.
-
 Android shell for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): WebView UI
 over an **embedded Termux runtime snapshot** (extract-and-run, no Termux app needed), SAF directory
 bridge, keep-alive foreground service, engine watchdog, and online runtime updates. One APK to
-install: it boots a full dsh web agent that can really execute bash. App name `DeepCode` (icon text
-DeepSearch), package `com.dsharnessmobile.shell`, version `0.13.0-preview` (versionCode 24).
+install: it boots a full dsh web agent that can really execute bash.
+
+App name **DeepCode** (icon text DeepSearch), package `com.dsharnessmobile.shell`,
+version `0.13.0-preview` (versionCode 24).
+
+> ⚠️ **0.13.0-preview — preview release**: unstable, intended for validation & feedback — do not
+> rely on it in production.
+> - **ADB is not complete**: pairing / port auto-scan / execution are preview UI screens — the real
+>   ADB channel is under development and completes in the 0.13.0 official release.
+> - **Plugin-marketplace caveat**: the built-in marketplace covers many third-party plugins, and
+>   **most of them are likely unavailable or buggy on phones** (mobile vs desktop differ in WebView
+>   engine / filesystem / permission model / runtime). Mobile adaptation is long-term work — treat
+>   this beta as usability validation & feedback, not a production dependency.
 
 ## Features
 
 - **Embedded runtime** — xz snapshot (arm64 151.6 MB / x86_64 158.9 MB) bundling node + git + bash +
-  coreutils + dsh + plugins + pnpm + python/perl/ruby; first launch extracts in 2–4 min
-  (`refreshSnapshot`), engine listens on `127.0.0.1:3080`; fully offline.
+  coreutils + dsh + plugins + pnpm + python/perl/ruby; first launch extracts in 2–4 min, engine
+  listens on `127.0.0.1:3080`; fully offline.
 - **File-to-session (F5)** — "Open with / Share" auto-jumps into this app and forces a fresh temp
   workspace session for the file; temp workspaces get a 7-day TTL auto-cleanup and appear in the
-  workspace panel (issue #60).
+  workspace panel.
 - **Search (grep/glob)** — mobile ripgrep platform package (android-arm64, pcre2/NEON full-featured).
 - **Notifications** — automatic task-completion notifications (engine event bridge + watchdog
   consumer); system notification chain incl. authorization requests.
-- **Mobile UI** — responsive plugin (drawer/sheet on phones); adjustable font size, immersive status
-  bar, dark theme.
+- **Mobile UI deep adaptation** — responsive plugin (drawer/sheet on phones) + custom mobile-polish
+  plugin: rebuilt header (hamburger + session title/mode + ⋮ menu), pruned message actions & stats,
+  tap-highlight removal, approval card floating above composer, auto-close drawer on new session,
+  two-level settings, status-bar alignment.
 - **Built-in console** — standalone bash terminal (`assets/console.html` + embedded Termux), usable
   for diagnostics even when the engine is down.
 - **Keep-alive** — foreground service + 5s watchdog (auto-restarts a hung engine) + 3s UI monitor
@@ -60,22 +66,26 @@ adb install -r -t <apk>    # same-signature overwrite install
 
 ## Build
 
-Snapshot build & packaging live in the coordination repo
-([dsh-mobile](https://github.com/kelai141/dsh-mobile)); this repo is the shell. Requirements:
-JDK 17+, Android SDK (compileSdk 36); Gradle 8.11.1 via wrapper.
+Requirements: JDK 17+, Android SDK (compileSdk 36); Gradle 8.11.1 via wrapper.
 
 ```powershell
-# Snapshot build (Termux sources + dependency closure + pnpm + cordis overrides + slimming):
-node scripts\build-snapshot-013.mjs <arm64|x86_64>
+# Debug APK (local validation)
+.\gradlew.bat assembleDebug
 
-# One-shot packaging (snapshot → injection → gates → gradle):
-pwsh scripts\build-apk-013.ps1 -Suffix "-preview"
-# output: out\v0.13.0\dsh-mobile-apk-v<ver>-<abi>.apk
+# Release APK (needs keystore config, see gradle files)
+.\gradlew.bat assembleRelease
+
+# Output: app\build\outputs\apk\<variant>\app-<variant>.apk
+# Install to a device
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Gates (inside `build-apk-013.ps1`): third-party compliance (`check-third-party.mjs`, GPL
-obligations) / secrets / ELF / cordis mount-set ⊇ injected set / LICENSES self-check (Python
-streaming) — any failure rejects the build.
+> The debug package ships with the x86_64 snapshot by default; before installing to an arm64 phone,
+> replace `app/src/main/assets/snapshot.tar.xz` + `snapshot.sha256` with the arm64 pair (they must
+> stay paired) or the engine crashes at startup.
+
+The runtime snapshot (Termux sources + dependency closure + pnpm + cordis overrides + slimming) is
+produced by the upstream coordination repo; this repo only builds and packages the shell.
 
 ## Bridge protocol v1 (`window.androidBridge`)
 
@@ -131,8 +141,8 @@ The bridge decouples the APK from the dsh version: pages feature-detect on `andr
    restarts it from the new runtime.
 
 Test trigger: `adb shell am start -n com.dsharnessmobile.shell/.MainActivity -a com.dsharnessmobile.shell.action.UPDATE`;
-status is written to `files/update-status.txt`. Test server: serve `manifest.json` + the snapshot from any
-local HTTP server (default endpoint `http://10.0.2.2:8899/manifest.json` maps the host from the emulator).
+status is written to `files/update-status.txt`. Test server: serve `manifest.json` + the snapshot
+from any local HTTP server.
 
 ## Permissions
 
@@ -150,18 +160,10 @@ SAF picking needs no permission.
 arm64 and x86_64 are both verified end-to-end; APKs are distributed per-ABI (the embedded snapshot
 is arch-specific). A 16KB-page build must be produced on a 16KB device (see docs/design.md §ABI).
 
-## License
+## Origin & License
 
-MIT. Contains third-party components under their own licenses (see dependency declarations).
+This repository is derived from [kelai141/dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)
+(MIT), with continued mobile adaptation and experience improvements on top.
+MIT. Third-party components under their own licenses (see dependency declarations).
 GPL compliance: copyleft license texts ship in all three forms — snapshot `usr/share/LICENSES/`,
 repo `LICENSES/`, and APK `assets/licenses/`. Design rationale: `docs/design.md`.
-
-## Acknowledgments & invitation
-
-Thanks to the community for feedback and contributions — especially cdwlll (environment issues),
-haitunlang (MIUI 12 compatibility), TACONailoong (legacy-WebView compat), X-SCI-TECH (PRs),
-Yangerwei (file race feedback), gr12-cmd (armv7l demand).
-
-Contributors welcome: Android compatibility testing (Huawei / Honor / Xiaomi custom WebViews),
-armv7l and more device support, completing the ADB channel, and growing the plugin ecosystem.
-Development & contribution guidelines live in each repo's `AGENTS.md`.

@@ -1,40 +1,41 @@
-# dsh-mobile-apk — DeepSeek Harness 安卓壳 APK
+# dsh-android — DeepSeek Harness 安卓壳
+
+[English README](README.md)
 
 ![DeepSeek Harness](https://img.shields.io/badge/DeepSeek_Harness-blue?style=flat&logo=DeepSeek&logoSize=auto&color=%232D5F9E)
 ![Android](https://img.shields.io/badge/Android-blue?style=flat&logo=Android&logoSize=auto&color=%2397CA00)
 
-
-> **dsh-mobile 生态** · [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-client-ui-responsive](https://github.com/kelai141/dsh-client-ui-responsive)（移动 UI）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）· [dsh-mobile](https://github.com/kelai141/dsh-mobile)（协调仓库，private）
-
-> ⚠️ **这是预览版（0.13.0-preview）**：不稳定，用于社区验证与反馈，不建议当作生产依赖。
-> - **ADB 未完成**：配对 / 端口自动扫描 / 执行为预览界面——真实 ADB 通道开发中，0.13.0 正式版完成。
-> - **插件市场适配警示**：内置市场牵涉大量第三方插件，**绝大多数插件在手机端不一定可用、大概率有 bug**（移动端与桌面端在 WebView 内核/文件系统/权限模型/运行环境差异大）；移动端适配是长期工程，beta 阶段以「可用性验证与反馈」为主，暂不建议当作生产依赖。插件报错请到 [issues](https://github.com/kelai141/dsh-mobile-apk/issues) 反馈（附机型/版本/复现步骤）。
-
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的安卓壳：WebView UI 覆盖
-**内嵌 Termux 运行时快照**（解压即跑，无需 Termux app）、SAF 目录桥、保活前台服务、引擎看门狗、
-运行时在线更新。一个 APK 装完即用：完整的 dsh web agent，且能真实执行 bash。应用名 `DeepCode`
-（图标文字 DeepSearch）、包名 `com.dsharnessmobile.shell`、版本 `0.13.0-preview`（versionCode 24）。
+**内嵌 Termux 运行时快照**（解压即跑，无需安装 Termux app）、SAF 目录桥、保活前台服务、
+引擎看门狗、运行时在线更新。一个 APK 装完即用：完整的 dsh web agent，且能真实执行 bash。
+
+应用名 **DeepCode**（图标文字 DeepSearch）、包名 `com.dsharnessmobile.shell`、
+版本 `0.13.0-preview`（versionCode 24）。
+
+> ⚠️ **预览版（0.13.0-preview）**：不稳定，用于功能验证与反馈，不建议当作生产依赖。
+> - **ADB 通道开发中**：配对 / 端口自动扫描 / 执行为预览界面，正式通道在 0.13.0 正式版完成。
+> - **插件市场适配警示**：内置市场覆盖大量第三方插件，**绝大多数在手机端不一定可用、大概率有 bug**（移动端与桌面端在 WebView 内核 / 文件系统 / 权限模型 / 运行环境差异大）。移动端适配是长期工程，beta 阶段以「可用性验证与反馈」为主。
 
 ## 功能
 
 - **内嵌运行时**：xz 快照（arm64 151.6MB / x86_64 158.9MB）内置 node + git + bash + coreutils +
-  dsh + 插件 + pnpm + python/perl/ruby；首启解压 2-4 分钟（`refreshSnapshot`），引擎监听
-  `127.0.0.1:3080`；完全离线；
-- **文件直达会话（F5）**：「使用其他应用打开 / 分享」→ 自动跳转本应用 → 强制新建临时工作区会话
-  处理文件；临时工作区 7 天 TTL 自动清理 + 工作区面板可见（issue #60）；
+  dsh + 插件 + pnpm + python/perl/ruby；首启解压 2-4 分钟，引擎监听 `127.0.0.1:3080`；完全离线；
+- **文件直达会话（F5）**：「使用其他应用打开 / 分享」→ 自动跳转本应用 → 强制新建临时工作区
+  会话处理文件；临时工作区 7 天 TTL 自动清理 + 工作区面板可见；
 - **搜索（grep/glob）**：移动端 ripgrep 平台包（android-arm64，pcre2/NEON 全特性）；
 - **通知提醒**：任务完成自动通知（引擎事件桥 + 看门狗消费）；授权请求等系统通知链；
-- **移动 UI**：响应式插件（手机端抽屉/sheet）；可调字体、沉浸式状态栏、深色主题；
+- **移动端 UI 深度适配**：响应式插件（手机端抽屉/sheet）+ 自研 mobile-polish 插件——
+  头部重构（汉堡 + 会话标题/模式名 + ⋮ 菜单）、消息操作栏精简、统计条精简、去点击闪烁、
+  审批卡片上浮到输入框上方、新会话自动收抽屉、设置多级页面、状态栏沉浸式对齐；
 - **内置控制台**：独立 bash 交互终端（`assets/console.html` + 内嵌 Termux），引擎未运行也可排查；
 - **保活**：前台服务 + 5 秒看门狗（自动重拉挂死引擎）+ 3 秒 UI 轮询 + 崩溃自动回退闸门（UndoGate）；
 - **在线运行时更新**：manifest 驱动的快照替换（下载 → sha256 → 原子切换 → 自动重启），
   运行时可自更新而无需更新 APK；
 - **SAF 桥**：`pickDirectory` 把所选目录映射为真实路径（`/storage/emulated/0/…`）；
 - **设备访问**：所有文件访问；Shizuku 探活示例；
-- **ADB 授权界面（预览）**：三道门授权状态机 + 配对端口自动扫描（真实 ADB 通道开发中，
-  0.13.0 正式版完成）。
+- **ADB 授权界面（预览）**：三道门授权状态机 + 配对端口自动扫描（真实 ADB 通道开发中）。
 
-## 下载 / 安装
+## 安装
 
 Release `v0.13.0-preview` 提供双 ABI 包：
 
@@ -52,20 +53,25 @@ adb install -r -t <apk>    # 同签名覆盖安装
 
 ## 构建
 
-快照构建与打包在**协调仓库**（[dsh-mobile](https://github.com/kelai141/dsh-mobile)）完成，
-本仓库是壳子仓库。要求：JDK 17+、Android SDK（compileSdk 36）；Gradle 8.11.1 由 wrapper 提供。
+要求：JDK 17+、Android SDK（compileSdk 36）；Gradle 8.11.1 由 wrapper 提供。
 
 ```powershell
-# 快照构建（Termux 源 + 依赖闭包 + pnpm + cordis 权威覆盖 + 瘦身）：
-node scripts\build-snapshot-013.mjs <arm64|x86_64>
+# debug 包（本地验证用）
+.\gradlew.bat assembleDebug
 
-# 一键打包（快照 → 注入 → 门禁 → gradle）：
-pwsh scripts\build-apk-013.ps1 -Suffix "-preview"
-# 产物: out\v0.13.0\dsh-mobile-apk-v<ver>-<abi>.apk
+# release 包（需 keystore 配置，见 gradle 配置）
+.\gradlew.bat assembleRelease
+
+# 产物: app\build\outputs\apk\<variant>\app-<variant>.apk
+# 安装到手机
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-门禁（`build-apk-013.ps1` 内）：第三方合规（`check-third-party.mjs`，GPL 义务）/ 🔒机密 /
-ELF / cordis 挂载集⊇注入集 / LICENSES 自检（Python 流式）——任一不过即拒打包。
+> 调试包默认带 x86_64 快照；装到 arm64 真机前须把 `app/src/main/assets/snapshot.tar.xz` +
+> `snapshot.sha256` 换成 arm64 版（两者必须成对），否则引擎启动即崩。
+
+运行时快照（Termux 源 + 依赖闭包 + pnpm + cordis 覆盖 + 瘦身）由上游协调仓库产出，
+本仓库只做壳子构建与打包。
 
 ## 桥协议 v1（`window.androidBridge`）
 
@@ -119,8 +125,7 @@ ELF / cordis 挂载集⊇注入集 / LICENSES 自检（Python 流式）——任
    看门狗用新运行时重启。
 
 测试触发：`adb shell am start -n com.dsharnessmobile.shell/.MainActivity -a com.dsharnessmobile.shell.action.UPDATE`；
-状态写入 `files/update-status.txt`。测试服务器：本地起 HTTP 服务提供 `manifest.json` 与快照文件
-（默认指向 `http://10.0.2.2:8899/manifest.json`，模拟器映射宿主机）。
+状态写入 `files/update-status.txt`。测试服务器：本地起 HTTP 服务提供 `manifest.json` 与快照文件。
 
 ## 权限
 
@@ -138,17 +143,9 @@ SAF 目录/图片选择无需权限。
 arm64 与 x86_64 均已端到端验证；APK 按 ABI 分发（快照内嵌架构相关）。16KB 页构建需在
 16KB 设备上产出（见 docs/design.md §ABI）。
 
-## License
+## 来源与许可
 
-MIT。第三方组件按各自许可（见依赖声明）。GPL 合规：copyleft 全文三形态在场——快照
-`usr/share/LICENSES/`、仓库 `LICENSES/`、APK `assets/licenses/`。设计文档：`docs/design.md`。
-
-## 致谢与邀请
-
-**感谢全体社区成员的反馈与贡献！** 特别致谢：cdwlll（环境问题反馈）、haitunlang（MIUI12 兼容）、
-TACONailoong（老 WebView 兼容方案）、X-SCI-TECH（PR 贡献）、Yangerwei（文件竞态反馈）、
-gr12-cmd（armv7l 需求）。
-
-**诚邀各位开发者参与**：欢迎提交 issue、PR、建议与改进。我们特别需要：Android 兼容性测试
-（华为/荣耀/小米等定制 WebView）、armv7l 等更多机型支持、ADB 通道完善、插件生态扩展。
-开发维护规范见各仓库 `AGENTS.md`（开发地图）。
+本仓库派生自 [kelai141/dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)（MIT），
+在此基础上持续做移动端适配与体验优化。MIT 许可；第三方组件按各自许可（见依赖声明）。
+GPL 合规：copyleft 全文三形态在场——快照 `usr/share/LICENSES/`、仓库 `LICENSES/`、
+APK `assets/licenses/`。设计文档：`docs/design.md`。
