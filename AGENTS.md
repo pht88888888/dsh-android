@@ -66,6 +66,10 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 - ✅ **Edge-to-edge 顶部内边距**：顶栏 `padding-top: var(--dsh-android-system-top, 0px)` 让内容让出状态栏区域
 - ✅ **Web 端沉浸状态同步**：`pushImmersiveToWeb()` 在页面加载/恢复/切换时把原生状态写入 `localStorage('dsh.android.immersive')`，`data-dsh-immersive` 默认关闭（`=== "1"` 替代 `!== "0"`）
 - ✅ **顶部 inset 推送**：`--dsh-android-system-top` CSS 变量随 `pushWebInsets()` 注入 WebView
+- ✅ **状态栏对齐统一修复**（2026-08-26，真机验收）：对话顶栏已用 `padding-top: var(--dsh-android-system-top, 0px)` 让出状态栏（实测 36px），侧边栏与设置界面此前未让出导致重叠
+  - 侧边栏：`[data-mobile] ._3HOSdG_mobileDrawer { padding-top: var(--dsh-android-system-top, 0px) !important }`
+  - 设置一/二级页：`setupSettingsDialog` 创建的 `.mp-back-bar` 用 `backBar.style.setProperty("padding-top", sysTop, "important")` 压过内联 padding（CSS 变量从 `documentElement` 读取）
+- ✅ **隐藏所有滚动条**：`*::-webkit-scrollbar { display:none; width:0; height:0 }` + `scrollbar-width:none`（滚动仍可用，仅隐藏视觉）
 
 ---
 

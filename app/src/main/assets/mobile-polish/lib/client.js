@@ -17,6 +17,21 @@ window.__ModuleLoader__.load({
 * {
   -webkit-tap-highlight-color: transparent !important;
 }
+
+/* 4b. 隐藏所有滚动条（移动端太丑） */
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+* {
+  scrollbar-width: none !important;
+}
+
+/* 侧边栏让出状态栏（与对话顶栏对齐） */
+[data-mobile] ._3HOSdG_mobileDrawer {
+  padding-top: var(--dsh-android-system-top, 0px) !important;
+}
 button:focus, button:focus-visible, a:focus, [tabindex]:focus,
 input:focus, textarea:focus, select:focus {
   outline: none !important;
@@ -315,6 +330,9 @@ button[aria-label="有问题的回答"] {
 				minHeight: "56px", padding: "8px 12px", boxSizing: "border-box",
 				borderBottom: "none", background: "transparent",
 			});
+			// 回退 CSS 规则：用 !important 压内联 padding，让出状态栏
+			const sysTop = getComputedStyle(document.documentElement).getPropertyValue("--dsh-android-system-top").trim() || "0px";
+			backBar.style.setProperty("padding-top", sysTop, "important");
 			const backBtn = backBar.querySelector(".mp-back-circle");
 			Object.assign(backBtn.style, {
 				width: "36px", height: "36px", borderRadius: "50%", background: "var(--dsw-alias-interactive-bg-hover, #f0f0f0)",
