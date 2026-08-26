@@ -34,6 +34,11 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 - ✅ 修复 trimMeta 文本拼接 bug（多文本节点重复设置）
 - ✅ 修复 stats 条「输入 1.5M tok」正则遗漏
 - ✅ 第 4 项（去点击闪烁）+ 第 5 项（审批卡片上浮）CSS/JS 已落地
+- ✅ **第 5 项 审批卡片上浮已真机验收**（2026-08-26 动态插件实测）：
+  - 最终方案：**不移动 DOM**（面板保留在 Cordis layer 内，useDismiss/React 点击正常）
+  - 审批出现 → `watchApproval` 自动 `badge.click()` 展开 + `openDrawer()` 开抽屉 + `positionApprovalPanel()` 把面板 fixed 到输入框上方（CSS `--mp-approval-bottom` 变量 + `!important` 压 React anchor）
+  - 审批完成（count→0）→ 自动收起面板 + 关抽屉
+  - **踩坑**：v1 把 `panel` 移到 body → useDismiss 判「外部点击」按钮失效 + React 卸载残留；v2 把整个 `layer` 移到 body → 侧边栏 Cordis 入口丢失 + 面板被 useDismiss 关闭。**v3 回归不移 DOM 才通过**。抽屉 transform 会让 layer 内 fixed 面板跟随移出屏幕（x=-289），故必须先开抽屉（transform identity）再定位
 - ✅ Cordis 预设「创造模式（参数修复）」已 bundle 到 assets/presets/cordis-argfix/
 - ✅ 第 1/6/7 项已真机（CDP DOM 实测）验证，并修复两处问题：
   - 头部重叠：`headerActions` 需在 `titleCluster` 内 `flex:1 1 auto; min-width:0; width:100%` 才能换行收缩，否则溢出与 `headerUtilities` 重叠
@@ -46,8 +51,7 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
   - 消除旧样式闪烁：MutationObserver 对新增 dialog 立即执行 `setupSettingsDialog`，不再等 300ms 节流
 
 ### 未完成 / 待验证
-1. **第 5 项 审批卡片上浮**：代码已落地，但当前无待审批任务，未实测
-2. **第 2/3 项**：真机 DOM 确认生效（隐藏按钮 display:none；stats 条 `首 token`/`输入 tok` 及分隔符 display:none）
+1. **第 2/3 项**：真机 DOM 确认生效（隐藏按钮 display:none；stats 条 `首 token`/`输入 tok` 及分隔符 display:none）
 
 ### 新增（2026-08-26 UI 重构第二阶段）
 - ✅ **状态栏修复**：默认 `immersive_mode=false`（状态栏显示），edge-to-edge 内容延伸到状态栏后（API 29 用 `LAYOUT_FULLSCREEN`，API 30+ 用 `setDecorFitsSystemWindows(false)`），状态栏背景透明并适配主题色

@@ -162,6 +162,19 @@ button[aria-label="有问题的回答"] {
   z-index: 99998;
   background: transparent;
 }
+/* 5. 审批面板浮到输入框上方（面板保留在 Cordis layer 内不动，仅重定位）。
+   抽屉打开时 transform 为 identity，fixed 相对视口生效；bottom 用 CSS 变量
+   承载：React 重算 anchor 覆盖内联 bottom 也压不过 !important。 */
+.Nqubda_panel[data-mp-approval] {
+  position: fixed !important;
+  left: 12px !important;
+  right: 12px !important;
+  top: auto !important;
+  width: auto !important;
+  max-width: calc(100vw - 24px) !important;
+  bottom: var(--mp-approval-bottom, 96px) !important;
+  z-index: 9999 !important;
+}
 `;
 
 		function injectStyles() {
@@ -223,28 +236,49 @@ button[aria-label="有问题的回答"] {
 			if (!badge) return;
 			const count = parseInt(badge.getAttribute("data-cordis-approval-badge") || "0", 10);
 			if (count === lastApprovalCount) return;
+			const prev = lastApprovalCount;
 			lastApprovalCount = count;
-			if (count > 0 && badge.getAttribute("aria-expanded") !== "true") {
-				badge.click();
+			if (count > 0) {
+				// 有新审批：展开面板 + 打开抽屉（面板保留在 layer 内，useDismiss/React 均正常）
+				if (badge.getAttribute("aria-expanded") !== "true") badge.click();
+				openDrawer();
 				positionApprovalPanel();
+			} else if (prev > 0) {
+				// 审批已处理：收起面板 + 收起抽屉
+				if (badge.getAttribute("aria-expanded") === "true") badge.click();
+				closeDrawer();
 			}
 		}
 
+		function openDrawer() {
+			const drawer = document.querySelector('[data-mobile] [class*="mobileDrawer"]');
+			if (!drawer || drawer.getAttribute("data-open")) return;
+			const hamburger = document.querySelector('button[aria-label="打开导航"], [class*="mobileHamburger"]');
+			if (hamburger) hamburger.click();
+		}
+
+		function closeDrawer() {
+			const drawer = document.querySelector('[data-mobile] [class*="mobileDrawer"][data-open]');
+			if (!drawer) return;
+			const hamburger = document.querySelector('button[aria-label="打开导航"], [class*="mobileHamburger"]');
+			if (hamburger) hamburger.click();
+		}
+
 		function positionApprovalPanel() {
-			setTimeout(() => {
+			// 面板渲染是异步的（React setState → re-render）：轮询等面板出现再定位
+			let tries = 0;
+			const tick = () => {
 				const panel = document.querySelector(".Nqubda_panel");
 				const seat = document.querySelector("[data-composer-seat]");
-				if (!panel || !seat) return;
-				const r = seat.getBoundingClientRect();
-				panel.dataset.mpApproval = "1";
-				panel.style.position = "fixed";
-				panel.style.left = "12px";
-				panel.style.right = "12px";
-				panel.style.width = "auto";
-				panel.style.maxWidth = "calc(100vw - 24px)";
-				panel.style.top = "auto";
-				panel.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + "px";
-			}, 80);
+				if (panel && seat) {
+					const r = seat.getBoundingClientRect();
+					panel.dataset.mpApproval = "1";
+					panel.style.setProperty("--mp-approval-bottom", Math.max(8, window.innerHeight - r.top + 8) + "px");
+				} else if (tries++ < 10) {
+					setTimeout(tick, 100);
+				}
+			};
+			tick();
 		}
 
 						// ── 7. 设置页两级化（全 inline style，不用 CSS 规则——见 CSS 区注释） ──
