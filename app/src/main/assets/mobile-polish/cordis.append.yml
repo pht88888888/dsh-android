@@ -1,0 +1,6 @@
+# 手机端 UI 深度适配（@dsh-mobile/mobile-polish）：
+# 头部重叠修复 / 消息操作精简 / composer 统计精简 / 去点击闪烁 /
+# 审批卡片上浮到输入框上方 / 新会话自动收抽屉 / 设置多级页面。
+- insert:
+    - id: mobile-polish
+      name: '@dsh-mobile/mobile-polish'

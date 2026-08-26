@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-mobile/mobile-polish",
+  "description": "Client plugin: mobile UI polish for the dsh web agent (header overlap fix, message-action pruning, composer stats pruning, tap-highlight removal, approval card above composer, drawer auto-close, two-level settings).",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/client.js"
+  ],
+  "license": "MIT",
+  "private": true
+}

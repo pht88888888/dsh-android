@@ -1,0 +1,2 @@
+name: 创造模式（参数修复）
+description: cordis preset 的副本，新增 cordis_define_safe / cordis_inspect_query_safe 宽容工具，修复模型把嵌套对象序列化为 JSON 字符串导致的 cordis_define 参数校验失败。
