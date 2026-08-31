@@ -1,0 +1,4 @@
+# 中文模式（dsh-zh-mode）：设置开关 → 系统提示词注入中文 persona 段。
+- insert:
+    - id: zh-mode
+      name: 'dsh-zh-mode'

@@ -1,0 +1,12 @@
+# dsh-agvideo bundle patch — one loader entry mounting the plugin package.
+#
+# The entry is a normal cordis loader entry (id + package name). The browser
+# half is picked up by dsh-client-modules through the package's dsh.client
+# declaration + exports["./client"], exactly like dsh-agimage.
+#
+# Manual mount: add the same row to the profile's cordis.patch.yml, or install
+# the package with `dsh plugin --profile <name> add dsh-agvideo` (bundle
+# channel reads this file automatically).
+- insert:
+    - id: agvideo
+      name: 'dsh-agvideo'

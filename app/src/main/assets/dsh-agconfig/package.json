@@ -1,0 +1,38 @@
+{
+  "name": "dsh-agconfig",
+  "version": "1.0.0",
+  "description": "多模态配置：在 设置 → 插件 → 多模态配置 中填写 Agnes AI API 密钥，持久化到 $DSH_HOME/ag-multimodal.json。dsh-agimage / dsh-agvideo 两个工具从同一配置文件读取密钥（未配置时回退内置默认值）。",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.append.yml"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.append.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "react": "^18.2.0"
+  }
+}

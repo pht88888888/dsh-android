@@ -548,6 +548,38 @@ class EngineManager(private val context: Context, private val pickToken: String?
   }
 
   /**
+   * 部署 Agnes 多模态插件（dsh-agconfig / dsh-agimage / dsh-agvideo）。
+   * 把 assets/dsh-ag 系列 下的包文件写入 profile node_modules，并在 cordis.patch.yml
+   * 追加挂载条目（幂等，content-fingerprint + marker）。移动端 host 半已由
+   * pwsh 移植为 Node fetch（Android 无 PowerShell）。
+   */
+  private fun deployAgPlugins() {
+    val profileModules = File(homeDir, ".dsh/profiles/web/node_modules")
+    val patch = File(homeDir, ".dsh/profiles/web/cordis.patch.yml")
+    for (name in listOf("dsh-agconfig", "dsh-agimage", "dsh-agvideo", "dsh-zh-mode")) {
+      val pkgRoot = File(profileModules, name)
+      for ((rel, asset) in listOf(
+        "package.json" to "$name/package.json",
+        "lib/index.js" to "$name/lib/index.js",
+        "lib/client.js" to "$name/lib/client.js",
+      )) {
+        try {
+          val bytes = context.assets.open(asset).use { it.readBytes() }
+          val target = File(pkgRoot, rel)
+          if (target.exists() && target.readBytes().contentEquals(bytes)) continue
+          target.parentFile?.mkdirs()
+          target.writeBytes(bytes)
+          Log.i(TAG, "ag plugin deployed: $asset -> $target")
+        } catch (e: Exception) {
+          Log.e(TAG, "ag plugin deploy failed: $asset", e)
+        }
+      }
+      applyAssetPatchAppend("$name/cordis.append.yml", patch, name)
+    }
+  }
+
+
+  /**
    * 修复 usr/bin/dsh（2026-08-26，插件市场安装失败根因）：
    * 快照里 dsh 是软链 → lib/node_modules/@deepseek-ai/dsh/lib/bin.js，
    * 其 shebang 为 `#!/usr/bin/env node`，Android 无 /usr/bin/env，且
@@ -579,6 +611,7 @@ class EngineManager(private val context: Context, private val pickToken: String?
     // also covers the upgrade-with-running-engine case via the cooldown bypass path).
     deployBundledPresets()
     deployMobilePolish()
+    deployAgPlugins()
     fixDshBin()
     // LD_PRELOAD depends on the snapshot's termux-exec lib: when missing, every child exec fails,
     // and combined with the cooldown window that means a silent 90s engine outage — assert explicitly

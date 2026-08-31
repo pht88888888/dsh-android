@@ -1,0 +1,11 @@
+# dsh-agconfig bundle patch — one loader entry mounting the plugin package.
+#
+# The entry is a normal cordis loader entry (id + package name). The browser
+# half is picked up by dsh-client-modules through the package's dsh.client
+# declaration + exports["./client"].
+#
+# Manual mount: add the same row to the profile's cordis.patch.yml, or install
+# the package with `dsh plugin --profile <name> add dsh-agconfig`.
+- insert:
+    - id: agconfig
+      name: 'dsh-agconfig'

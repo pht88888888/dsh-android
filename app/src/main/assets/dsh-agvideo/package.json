@@ -1,0 +1,38 @@
+{
+  "name": "dsh-agvideo",
+  "version": "1.0.0",
+  "description": "常驻版 Agnes AI 视频生成工具（原动态插件 agvid-1 / agvid-video 固化交付）：注册 generate_video 模型工具，支持 text / keyframe / reference 三模式，自动轮询至完成，视频卡在会话内以 240px 上限显示。",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.append.yml"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.append.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "react": "^18.2.0"
+  }
+}

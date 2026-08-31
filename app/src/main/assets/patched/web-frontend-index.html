@@ -34,6 +34,67 @@
         // #81 补充观察：老内核同样缺 structuredClone/Array.flat 的场景由 dsh 上游兜底，这里不加
         // 未报告项（最小面）。若 #81 评论区补报再扩。
       })();
+      // dsh-mobile-canvas-polyfill (issue apk#83, 2026-08-31): Chromium 114 WebView
+        // 缺 DOMMatrix / ImageData / Path2D / OffscreenCanvas，导致 pdfjs-dist 加载
+        // @napi-rs/canvas 失败并 warn。注入极简 polyfill 让 pdfjs 正常渲染（不需要
+        // 完整实现，只暴露存在性检查能过的最小接口）。
+        (function () {
+          function def(t, k, v) {
+            if (k in t) return;
+            try { Object.defineProperty(t, k, { value: v, writable: true, enumerable: false, configurable: true }); } catch (e) {}
+          }
+          // DOMMatrix - 仅支持 2D 变换（pdfjs 主要用这个）
+          if (!window.DOMMatrix) {
+            def(window, "DOMMatrix", class DOMMatrix {
+              constructor(m = []) { this.m = Array.isArray(m) ? m.slice(0,6) : [1,0,0,1,0,0]; }
+              get a(){return this.m[0]} set a(v){this.m[0]=v}
+              get b(){return this.m[1]} set b(v){this.m[1]=v}
+              get c(){return this.m[2]} set c(v){this.m[2]=v}
+              get d(){return this.m[3]} set d(v){this.m[3]=v}
+              get e(){return this.m[4]} set e(v){this.m[4]=v}
+              get f(){return this.m[5]} set f(v){this.m[5]=v}
+              multiply(m){ return new DOMMatrix([...this.m.map((v,i)=>v*m.m[i%6]).reduce((a,b)=>a+b,0).slice(0,6)]) }
+              toString(){ return `matrix(${this.m[0]},${this.m[1]},${this.m[2]},${this.m[3]},${this.m[4]},${this.m[5]})` }
+            });
+          }
+          // ImageData - 最小实现（pdfjs 需要 putImageData）
+          if (!window.ImageData) {
+            def(window, "ImageData", class ImageData {
+              constructor(w, h) { this.width = w; this.height = h; this.data = new Uint8ClampedArray(w * h * 4); }
+            });
+          }
+          // Path2D - 空实现（pdfjs 用 path 做 clip，这里忽略实际绘制）
+          if (!window.Path2D) {
+            def(window, "Path2D", class Path2D {
+              addPath(p){} arc(){} arcTo(){} bezierCurveTo(){} closePath(){} ellipse(){} lineTo(){} moveTo(){} quadraticCurveTo(){} rect(){}
+              isPointInPath(x,y){return false}
+            });
+          }
+          // OffscreenCanvas - 暴露 context 给 pdfjs
+          if (!window.OffscreenCanvas) {
+            def(window, "OffscreenCanvas", class OffscreenCanvas {
+              constructor(w, h) { this.width = w; this.height = h; }
+              getContext(type) {
+                if (type === "2d") {
+                  return { fillStyle: "#000", strokeStyle: "#000", lineWidth: 1,
+                    fillRect(){}, strokeRect(){}, clearRect(){}, fillText(){}, strokeText(){},
+                    save(){}, restore(){}, beginPath(){}, closePath(){}, moveTo(){}, lineTo(){},
+                    bezierCurveTo(){}, arc(){}, rect(){}, clip(){}, rotate(){}, scale(){}, translate(){},
+                    transform(){}, setTransform(){}, drawImage(){}, createImageData(){ return new ImageData(1,1); },
+                    getImageData(){ return new ImageData(1,1); }, putImageData(){}, createPattern(){ return null; },
+                    createLinearGradient(){ return { addColorStop(){} }; }, createRadialGradient(){ return { addColorStop(){} }; },
+                    measureText(){ return { width: 0 }; }, lineCap: "butt", lineJoin: "miter", miterLimit: 10,
+                    font: "10px sans-serif", textAlign: "start", textBaseline: "alphabetic", globalAlpha: 1,
+                    globalCompositeOperation: "source-over", shadowBlur: 0, shadowColor: "rgba(0,0,0,0)",
+                    shadowOffsetX: 0, shadowOffsetY: 0, patternQuality: "fast", imageSmoothing: true,
+                    direction: "ltr", filter: "none" };
+                }
+                return null;
+              }
+              convertToBlob(){ return Promise.resolve(new Blob()); }
+            });
+          }
+        })();
       // dsh-mobile-clip-fallback-web: Android WebView rejects
       // navigator.clipboard.writeText with NotAllowedError (no permission
       // prompt). Wrap it globally so every copy path (message copy, code
