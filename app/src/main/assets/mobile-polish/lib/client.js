@@ -18,6 +18,27 @@ window.__ModuleLoader__.load({
   -webkit-tap-highlight-color: transparent !important;
 }
 
+/* 4c. 长按手势选择控制：
+     全局禁用 touch-callout + user-select（消灭长按弹出系统菜单和文字选中）。
+     例外：消息区域 .wSkVaW_viewArea 和输入元素允许原生长按行为。
+     非消息区域（header/sidebar/settings等）保持 disabled，体验接近原生 app。 */
+* {
+  -webkit-touch-callout: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+.wSkVaW_viewArea,
+.wSkVaW_viewArea * {
+  -webkit-touch-callout: default !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+input, textarea, [contenteditable] {
+  -webkit-touch-callout: default !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* 4b. 隐藏所有滚动条（移动端太丑） */
 *::-webkit-scrollbar {
   display: none !important;
@@ -177,6 +198,8 @@ button[aria-label="有问题的回答"] {
   z-index: 99998;
   background: transparent;
 }
+
+
 /* 5. 审批面板浮到输入框上方（面板保留在 Cordis layer 内不动，仅重定位）。
    抽屉打开时 transform 为 identity，fixed 相对视口生效；bottom 用 CSS 变量
    承载：React 重算 anchor 覆盖内联 bottom 也压不过 !important。 */
@@ -599,6 +622,64 @@ button[aria-label="有问题的回答"] {
 				document.querySelectorAll('[role="dialog"][aria-modal="true"]').forEach(setupSettingsDialog);
 			}, 300);
 		});
+
+		// ── 4e. 非消息区域长按拦截：不触发系统文字选择器 ──
+		// 策略：touchstart 非 passive 允许我们在需要时 preventDefault；
+		//       只在长按时（≥400ms 且无明显移动）才阻止，短按/滚动正常走原生。
+		var mpLongPressStart = null;
+		var mpLongPressMoved = false;
+		var MP_LONGPRESS_THRESHOLD = 400;
+		var MP_LONGPRESS_MOVE_THRESHOLD = 12;
+
+		function mpIsMessageArea(el) {
+			if (!el) return false;
+			if (el.closest(".wSkVaW_viewArea")) return true;
+			if (el.closest("input") || el.closest("textarea") || el.closest("[contenteditable]")) return true;
+			return false;
+		}
+
+		document.addEventListener("touchstart", function(e) {
+			if (e.touches.length !== 1) return;
+			var t = e.touches[0];
+			mpLongPressStart = { x: t.clientX, y: t.clientY, time: Date.now() };
+			mpLongPressMoved = false;
+		}, false);
+
+		document.addEventListener("touchmove", function(e) {
+			if (!mpLongPressStart) return;
+			var t = e.touches[0];
+			var dx = Math.abs(t.clientX - mpLongPressStart.x);
+			var dy = Math.abs(t.clientY - mpLongPressStart.y);
+			if (dx > MP_LONGPRESS_MOVE_THRESHOLD || dy > MP_LONGPRESS_MOVE_THRESHOLD) {
+				mpLongPressStart = null;
+			}
+		}, false);
+
+		document.addEventListener("touchend", function(e) {
+			if (!mpLongPressStart) return;
+			var elapsed = Date.now() - mpLongPressStart.time;
+			if (elapsed < MP_LONGPRESS_THRESHOLD) {
+				mpLongPressStart = null;
+				return;
+			}
+			// 长按超时，检查是否在消息区域
+			var t = e.changedTouches[0];
+			var target = document.elementFromPoint(t.clientX, t.clientY);
+			if (mpIsMessageArea(target)) {
+				mpLongPressStart = null;
+				return; // 消息区域：让原生长按行为正常执行
+			}
+			// 非消息区域长按：阻止系统文本选择器
+			e.preventDefault();
+			mpLongPressStart = null;
+		}, false);
+
+		// contextmenu 兜底（调试工具偶尔触发）
+		document.addEventListener("contextmenu", function(e) {
+			if (!mpIsMessageArea(e.target)) {
+				e.preventDefault();
+			}
+		}, false);
 
 		function apply(ctx) {
 			injectStyles();

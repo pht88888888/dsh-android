@@ -1,5 +1,34 @@
 # dsh-mobile-apk 变更记录
 
+## v0.13.2 — 2026-08-31
+
+### 新增功能
+
+#### 1. 消息区域长按手势优化
+
+**问题**：WebView 默认长按任何区域都会弹出系统文字选择器，与原生 App 体验不一致。标题栏、侧栏、按钮等非消息区域长按也会误触发文字高亮。
+
+**方案**：三层防御，消息区保留原生体验，其余区域完全静默。
+
+| 层 | 手段 | 作用 |
+|---|---|---|
+| CSS 全局 | `* { -webkit-touch-callout: none; user-select: none }` | 消灭所有区域的默认长按选择 |
+| CSS 例外 | `.wSkVaW_viewArea *, input, textarea { user-select: text; touch-callout: default }` | 恢复消息区和输入框的原生长按 |
+| JS 兜底 | `touchstart/touchmove/touchend` 非 passive 监听，≥400ms 长按非消息区域时 `preventDefault()` | 阻止偶发的系统 contextmenu |
+
+**DOM 结构发现**（通过 CDP 验证）：
+- 消息容器：`.wSkVaW_root` → `.wSkVaW_scrollBody` → `.wSkVaW_viewArea`
+- 用户输入：`.wSkVaW_composerSeat`（在 viewArea 之外）
+- 顶部栏：`.mp-hd-title` / `.mp-hd-mode` 挂在 `_3HOSdG_mobileTopBar` 下，是 body 的直接子元素，不在 viewArea 内
+
+**注意**：`user-select: none` 必须同时设置 `-webkit-user-select: none` 才在华为 WebView 114 生效；CSS 规则必须在 `<style>` 标签内以 `!important` 声明，否则会被 dsh 前端 bundle 的内联样式覆盖。
+
+### 改动文件
+
+- `app/src/main/assets/mobile-polish/lib/client.js` — CSS 规则 + JS 长按拦截
+
+---
+
 ## v0.13.1 — 2026-08-31
 
 ### 新增功能

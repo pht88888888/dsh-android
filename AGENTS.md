@@ -97,6 +97,15 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 - WebView 的 `env(safe-area-inset-top)` 在部分 WebView 上返回 0；改用 `var(--dsh-android-system-top, 0px)`（由 native `pushWebInsets()` 注入）。
 - 切换深/浅色模式时 `onConfigurationChanged` 会重推 `applyImmersive()`，确保图标色更新。
 
+### 3.8 消息区长按手势控制（v0.13.2）
+- **策略**：CSS 全局禁用 + JS 非 passive 监听兜底。
+  - `* { -webkit-touch-callout: none; user-select: none }` → 消灭全局默认行为
+  - `.wSkVaW_viewArea *` 和 `input/textarea` 恢复 `user-select: text; touch-callout: default`
+  - JS `touchend` 中 ≥ 400ms 且移动 < 12px 时，若元素不在 `.wSkVaW_viewArea` 内则 `preventDefault()`
+- **DOM 结构**：消息区是 `.wSkVaW_root > .wSkVaW_scrollBody > .wSkVaW_viewArea`；顶部栏 `.mp-hd-title` 是 body 直接子元素，**不在 viewArea 内**，所以 CSS 例外不会误覆盖顶部栏。
+- **避坑**：`user-select: none` 必须加 `-webkit-user-select: none` 才能在华为 WebView 114 生效；所有例外规则必须带 `!important`。
+- **禁止**：不要给 touch 事件加 `{ passive: true }`——非 passive 才能调用 `preventDefault()` 拦截长按。
+
 ---
 
 ## 4. 文件落点
