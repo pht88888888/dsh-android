@@ -16,4 +16,5 @@
   <string name="ds_runtime_pending">运行时待解压</string>
   <string name="ds_storage_granted">存储已授权</string>
   <string name="ds_storage_needed">去授权存储</string>
+  <string name="ds_restore_snapshot">恢复备份</string>
 </resources>

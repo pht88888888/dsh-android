@@ -79,24 +79,32 @@ class MainActivity : ComponentActivity() {
   /** 用户主动关闭后，前台监控与任何尚未结束的启动线程不得重新展示 WebUI。 */
   @Volatile
   private var userClosedEngine = false
-  /** 前台引擎监控：3s 轮询探测，down→测试界面、up→恢复 WebUI
-   *  （"设置里杀进程/引擎崩溃回退测试界面"的落地；watchdog 负责恢复）。 */
+  /** 前台引擎监控：防抖探活（连续多次探测超时才判定 down，避免高负载/GC 抖动误判切换页面）。 */
   private val engineMonitorHandler = android.os.Handler(android.os.Looper.getMainLooper())
+  private var consecutiveMonitorFailures = 0
   private val engineMonitorRunnable = object : Runnable {
     override fun run() {
       val monitor = this
       Thread {
-        val running = try { EngineProbe.check(500).optBoolean("running", false) } catch (_: Exception) { false }
+        // 探活超时从激进的 500ms 放宽到 2500ms，避免手机 CPU 繁忙或休眠唤醒时的网络抖动
+        val running = try { EngineProbe.check(2500).optBoolean("running", false) } catch (_: Exception) { false }
         runOnUiThread {
           if (::webView.isInitialized && ::guideView.isInitialized && !userClosedEngine) {
-            if (!running && webView.visibility == View.VISIBLE) {
-              applyGuidePhase(GuidePhase.Recovering, "引擎未运行，正在自动恢复…")
-              showGuide()
-            } else if (running && guideView.visibility == View.VISIBLE) {
-              showWeb()
+            if (!running) {
+              consecutiveMonitorFailures++
+              // 连续失败 4 次（至少 20 秒以上确诊）且不是在正常展示 Web 时才切走，避免偶发卡顿切屏
+              if (consecutiveMonitorFailures >= 4 && webView.visibility == View.VISIBLE) {
+                applyGuidePhase(GuidePhase.Recovering, "引擎响应超时，正在保活拉起…")
+                showGuide()
+              }
+            } else {
+              consecutiveMonitorFailures = 0
+              if (guideView.visibility == View.VISIBLE) {
+                showWeb(forceReload = false)
+              }
             }
           }
-          if (!userClosedEngine) engineMonitorHandler.postDelayed(monitor, 3000)
+          if (!userClosedEngine) engineMonitorHandler.postDelayed(monitor, 5000)
         }
       }.start()
     }
@@ -115,18 +123,15 @@ class MainActivity : ComponentActivity() {
     override fun run() {
       if (!::webView.isInitialized || userClosedEngine || webView.visibility != View.VISIBLE) return
       val now = System.currentTimeMillis()
-      if (now - pageLoadedAt > 45_000 && now - jsAckAt > 20_000) {
+      // 避免误判：页面刚加载前 90 秒不判定冻结；只有超过 60 秒无心跳应答才判定卡死
+      if (now - pageLoadedAt > 90_000 && now - jsAckAt > 60_000) {
         LogCollector.log("dsh-shell", "webview JS 无响应，渲染进程冻结（frozenMs=" + (now - jsAckAt) + "）")
+        // 不再暴力自动刷新页面（避免打断用户当前输入/大模型输出），仅提示用户可手动刷新
         try {
           android.widget.Toast.makeText(
-            this@MainActivity, "页面无响应，正在自动刷新…", android.widget.Toast.LENGTH_LONG,
+            this@MainActivity, "页面渲染缓慢，若无响应可下拉或重新进入", android.widget.Toast.LENGTH_SHORT,
           ).show()
         } catch (_: Exception) {
-        }
-        if (!freezeReloaded) {
-          freezeReloaded = true
-          try { webView.reload() } catch (_: Exception) {
-          }
         }
         jsAckAt = now
         pingOutstanding = false
@@ -1331,6 +1336,7 @@ class MainActivity : ComponentActivity() {
         onCheckUpdate = { startUpdateCheck() },
         onGrantStorage = { openAllFilesAccessSettings() },
         onCopyLog = { copyGuideLog() },
+        onRestoreSnapshot = { showManualRestoreDialog() },
       ),
     )
     engineStatus = chrome.engineStatus
@@ -1404,6 +1410,9 @@ class MainActivity : ComponentActivity() {
     chrome.statusDot.background = DsUi.oval(dotColor)
     setStatusPulse(busy)
     refreshGuideMeta()
+
+    // 仅在错误或空闲阶段露出手动回滚备份入口
+    chrome.restoreButton.visibility = if (phase == GuidePhase.Error || phase == GuidePhase.Closed) View.VISIBLE else View.GONE
   }
 
   private fun defaultHint(phase: GuidePhase): String = when (phase) {
@@ -1508,42 +1517,14 @@ class MainActivity : ComponentActivity() {
    * embedded), else extract the embedded snapshot and start the embedded
    * engine, then poll until the web service answers.
    */
-  /** 引擎启动超时/失败后进入自动回撤流程：UndoGate 幂等，安全多次调用。 */
+  /** 引擎启动超时/失败：提示用户，不再自动执行破坏性回滚，交由用户手动选择。 */
   private fun maybeAutoUndo(generation: Long) {
-    if (userClosedEngine) return
-    Thread {
-      try {
-        // 引擎全死时先决门槛：急救 CLI 存在 + 快照非空 + 幂等窗口
-        if (!UndoGate.onProbeFailure(this, WatchdogV2.consecutiveFailures)) return@Thread
-        runOnUiThread {
-          applyGuidePhase(GuidePhase.Undoing, "正在执行回撤…", "正在恢复到崩溃前的最后良好快照。")
-        }
-        val result = UndoGate.execute(this, engineManager)
-        if (result.executed) {
-          // 恢复配置文件后重启引擎（冷却窗复位由 UndoGate 完成后置零）
-          runOnUiThread {
-            if (!isCurrentEngineFlow(generation)) return@runOnUiThread
-            applyGuidePhase(GuidePhase.Recovering, "回撤完成，正在重启引擎…", "已恢复到快照 " + (result.snapshotId ?: "?"))
-          }
-          engineManager.resetCooldown()
-          if (isCurrentEngineFlow(generation)) engineManager.startEngine()
-          else EngineService.instance?.let { WatchdogV2.reset() }
-        } else {
-          runOnUiThread {
-            if (!isCurrentEngineFlow(generation)) return@runOnUiThread
-            applyGuidePhase(GuidePhase.Error, "自动回撤不可用", result.summary.take(120))
-          }
-        }
-      } catch (t: Throwable) {
-        Log.e("dsh-shell", "auto-undo failed", t)
-      }
-    }.start()
+    // 自动回滚已彻底废弃，防止误判导致用户配置丢失。手动恢复通过 Guide 界面的「恢复备份」按钮完成。
+    Log.w(TAG, "Engine start failed or timed out. Auto-undo is disabled to protect user settings.")
   }
 
-  /** 引擎启动超时（startEngineFlow 轮询失败后调用）：触发自动回撤。 */
+  /** 引擎启动超时（startEngineFlow 轮询失败后调用） */
   private fun onEngineStartTimeout(generation: Long) {
-    // 先给看门狗一次机会：WatchdogV2 熔断阈值(12)远高于此处的保守阈值(6)，
-    // 因此本路径只在「启动即失败」时触发；正常慢启动不会到达这里。
     maybeAutoUndo(generation)
   }
 
@@ -1690,12 +1671,59 @@ class MainActivity : ComponentActivity() {
     }
   }
 
-  private fun showWeb() {
+  private fun showWeb(forceReload: Boolean = false) {
     guideView.visibility = View.GONE
     webView.visibility = View.VISIBLE
-    // The WebView may have rendered an error page before the engine was
-    // ready (engine boot takes seconds); reload now that it answers.
-    webView.reload()
+    val currentUrl = webView.url
+    val targetUrl = "http://127.0.0.1:3080/"
+    // 如果当前页面不是目标网址，或者当前处于错误页/空白页，或者指定了 forceReload，则必须重新载入
+    val isErrorOrBlank = currentUrl.isNullOrBlank() || currentUrl == "about:blank" || webView.title == "网页无法打开" || webView.title?.contains("net::ERR_") == true
+    if (forceReload || isErrorOrBlank || currentUrl?.startsWith("http://127.0.0.1:3080") != true) {
+      webView.loadUrl(targetUrl)
+    }
+  }
+
+  private fun showManualRestoreDialog() {
+    val engineMgr = engineManager
+    val snapshots = UndoGate.listSnapshots(this, engineMgr)
+    if (snapshots.isEmpty()) {
+      android.app.AlertDialog.Builder(this)
+        .setTitle("暂无可恢复的快照")
+        .setMessage("当前没有可用的历史配置快照备份。")
+        .setPositiveButton("确定", null)
+        .show()
+      return
+    }
+
+    val displayItems = snapshots.map { s -> s.raw }.toTypedArray()
+
+    android.app.AlertDialog.Builder(this)
+      .setTitle("选择要恢复的快照")
+      .setItems(displayItems) { _, which ->
+        val chosen = snapshots[which]
+        android.app.AlertDialog.Builder(this)
+          .setTitle("确认恢复此快照？")
+          .setMessage("将把配置与插件回滚到快照：\n${chosen.id}\n\n当前未备份的文件可能被覆盖。")
+          .setPositiveButton("确认恢复") { _, _ ->
+            applyGuidePhase(GuidePhase.Undoing, "正在恢复快照…", "正在回退至 ${chosen.id}")
+            Thread {
+              val res = UndoGate.executeManual(this, engineMgr, chosen.id)
+              runOnUiThread {
+                if (res.executed) {
+                  android.widget.Toast.makeText(this, "快照已成功恢复！正在重新启动引擎…", android.widget.Toast.LENGTH_LONG).show()
+                  startEngineFlow()
+                } else {
+                  android.widget.Toast.makeText(this, "快照恢复失败：${res.summary}", android.widget.Toast.LENGTH_LONG).show()
+                  applyGuidePhase(GuidePhase.Error, "快照恢复失败", res.summary)
+                }
+              }
+            }.start()
+          }
+          .setNegativeButton("取消", null)
+          .show()
+      }
+      .setNegativeButton("取消", null)
+      .show()
   }
 
   /** 进入测试界面（引擎失败/未就绪回退）：状态 + 崩溃横幅 + engine.log 摘要。 */

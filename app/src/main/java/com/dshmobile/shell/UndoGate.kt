@@ -34,51 +34,67 @@ object UndoGate {
   /** 崩溃纪元间隔：距上次自动 undo 完成 < 该间隔时不再自动执行（防循环）。 */
   const val RETRY_WINDOW_MS = 30 * 60 * 1000L
 
-  /** 记录一次探测失败（带时间戳）；返回是否应该触发自动 undo。 */
+  /**
+   * 记录一次探测失败（带时间戳）；
+   * 【已禁用自动回滚】：严禁后台私自回滚快照。
+   * 返回值永久为 false，绝不自动触发 auto-undo。
+   */
   fun onProbeFailure(context: Context, consecutiveFailures: Int): Boolean {
-    if (consecutiveFailures < TRIGGER_CONSEC_FAILURES) return false
-    val last = lastUndoAt(context)
-    if (last != null && System.currentTimeMillis() - last < RETRY_WINDOW_MS) {
-      Log.i(TAG, "auto-undo suppressed: last undo at $last (within retry window)")
-      return false
-    }
-    val armedAt = armFile(context).takeIf { it.exists() }?.readText()?.trim()?.toLongOrNull()
-    if (armedAt != null && System.currentTimeMillis() - armedAt < WATCH_MS) {
-      Log.i(TAG, "auto-undo delay: armed at $armedAt, waiting watch window")
-      return false
-    }
-    return true
+    return false
   }
 
   /**
-   * 执行自动 undo（必须后台线程调用）：
-   * 1. 急救 CLI restore-last-good（快照回滚）
-   * 2. 写 .undo-auto-done 标记（幂等 + 供启动页显示）
-   * 3. 返回是否执行了回滚（+ 摘要）
+   * 手动执行快照回滚（仅由用户显式触发）：
+   * @param targetId 指定快照 ID，null 则回滚到上一个良好快照 restore-last-good
    */
-  fun execute(context: Context, engine: EngineManager): UndoResult {
+  fun executeManual(context: Context, engine: EngineManager, targetId: String? = null): UndoResult {
     val dsh = File(engine.homeDir, ".dsh")
     val cli = File(context.filesDir, "undo-emergency.mjs")
     if (!cli.exists()) {
-      Log.e(TAG, "auto-undo aborted: emergency CLI not deployed at " + cli.absolutePath)
+      Log.e(TAG, "manual undo aborted: emergency CLI not deployed at " + cli.absolutePath)
       return UndoResult(false, "急救 CLI 未部署", null)
     }
-    // 先确认有快照（空库不执行，避免空转）
-    val list = runCli(context, engine, cli, dsh, listOf("list"))
-    if (!list.any { it.startsWith("2026") || it.startsWith("20") } && !list.any { it.contains("[auto]") }) {
-      Log.i(TAG, "auto-undo skipped: no snapshots found")
-      return UndoResult(false, "无快照可回滚", null)
-    }
-    val out = runCli(context, engine, cli, dsh, listOf("restore-last-good"))
+    val args = if (targetId.isNullOrBlank()) listOf("restore-last-good") else listOf("restore", targetId)
+    val out = runCli(context, engine, cli, dsh, args)
     val ok = out.any { it.contains("完成：还原") }
     val summary = out.joinToString("\n")
     if (ok) {
       markerFile(context).writeText(System.currentTimeMillis().toString())
-      LogCollector.log(TAG, "auto-undo executed: restore-last-good ok")
+      LogCollector.log(TAG, "manual undo executed: " + args.joinToString(" ") + " ok")
     } else {
-      Log.e(TAG, "auto-undo failed: " + summary)
+      Log.e(TAG, "manual undo failed: " + summary)
     }
-    return UndoResult(ok, summary, if (ok) restoreTarget(out) else null)
+    return UndoResult(ok, summary, if (ok) (targetId ?: restoreTarget(out)) else null)
+  }
+
+  /** 快照项结构 */
+  data class SnapshotItem(val id: String, val raw: String)
+
+  /** 获取快照列表供界面展示给用户手动选择 */
+  fun listSnapshots(context: Context, engine: EngineManager): List<SnapshotItem> {
+    val dsh = File(engine.homeDir, ".dsh")
+    val cli = File(context.filesDir, "undo-emergency.mjs")
+    if (!cli.exists()) return emptyList()
+    val lines = runCli(context, engine, cli, dsh, listOf("list"))
+    val result = mutableListOf<SnapshotItem>()
+    for (line in lines) {
+      val trimmed = line.trim()
+      if (trimmed.isEmpty() || trimmed.startsWith("暂无") || trimmed.startsWith("emergency CLI")) continue
+      // 输出格式: <id>  [<kind>]  <time>  <reason>  文件<N> 插件<M>
+      val parts = trimmed.split("\\s+".toRegex())
+      if (parts.isNotEmpty()) {
+        val id = parts[0]
+        result.add(SnapshotItem(id, trimmed))
+      }
+    }
+    return result
+  }
+
+  /**
+   * 原后台自动 undo（保留函数兼容，但内部降级/不建议使用）
+   */
+  fun execute(context: Context, engine: EngineManager): UndoResult {
+    return executeManual(context, engine, null)
   }
 
   /** 从 CLI 输出提取恢复目标快照 id；解析失败返回 null（不阻断）。 */

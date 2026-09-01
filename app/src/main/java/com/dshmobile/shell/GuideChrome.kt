@@ -33,6 +33,7 @@ internal class GuideChrome(
   val primaryButton: Button,
   val consoleButton: Button,
   val updateButton: Button,
+  val restoreButton: Button,
   val runtimeChip: TextView,
   val storageChip: TextView,
   val versionLabel: TextView,
@@ -44,6 +45,7 @@ internal class GuideCallbacks(
   val onCheckUpdate: () -> Unit,
   val onGrantStorage: () -> Unit,
   val onCopyLog: () -> Unit,
+  val onRestoreSnapshot: () -> Unit,
 )
 
 internal fun buildGuideChrome(activity: ComponentActivity, callbacks: GuideCallbacks): GuideChrome {
@@ -363,6 +365,7 @@ internal fun buildGuideChrome(activity: ComponentActivity, callbacks: GuideCallb
   val primaryButton = makePrimary()
   val consoleButton = makeSecondary(activity.getString(R.string.ds_open_console), callbacks.onOpenConsole)
   val updateButton = makeSecondary(activity.getString(R.string.ds_check_update), callbacks.onCheckUpdate)
+  val restoreButton = makeSecondary(activity.getString(R.string.ds_restore_snapshot), callbacks.onRestoreSnapshot)
 
   val secondaryRow = LinearLayout(activity).apply {
     orientation = LinearLayout.HORIZONTAL
@@ -372,12 +375,16 @@ internal fun buildGuideChrome(activity: ComponentActivity, callbacks: GuideCallb
     lp.topMargin = dpix(R.dimen.ds_space_8)
     layoutParams = lp
   }
-  val half = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-  val halfEnd = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+  val third = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+  val thirdEnd1 = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
     marginStart = dpix(R.dimen.ds_space_8)
   }
-  secondaryRow.addView(consoleButton, half)
-  secondaryRow.addView(updateButton, halfEnd)
+  val thirdEnd2 = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+    marginStart = dpix(R.dimen.ds_space_8)
+  }
+  secondaryRow.addView(consoleButton, third)
+  secondaryRow.addView(updateButton, thirdEnd1)
+  secondaryRow.addView(restoreButton, thirdEnd2)
 
   val actionBlock = LinearLayout(activity).apply {
     orientation = LinearLayout.VERTICAL
@@ -404,6 +411,7 @@ internal fun buildGuideChrome(activity: ComponentActivity, callbacks: GuideCallb
     primaryButton = primaryButton,
     consoleButton = consoleButton,
     updateButton = updateButton,
+    restoreButton = restoreButton,
     runtimeChip = runtimeChip,
     storageChip = storageChip,
     versionLabel = versionLabel,

@@ -94,23 +94,9 @@ class EngineService : Service() {
           // 唤醒锁续期：engine 常驻超过 30min 后半段无锁（acquire 定时释放）
           WatchdogV2.refreshWakeLock(this)
           if (!healthy && engineManager.engineReady) {
+            // 静默尝试拉起保活进程
             engineManager.startEngine()
-            // F3 自动回撤（D6 方案 a）：看门狗连续失败达到阈值（熔断前）时，
-            // 触发急救 CLI 恢复最后良好快照；UndoGate 幂等 + 防循环。
-            if (UndoGate.onProbeFailure(this, WatchdogV2.consecutiveFailures)) {
-              LogCollector.log("dsh-watchdog", "auto-undo trigger: cons_fail=" + WatchdogV2.consecutiveFailures)
-              Thread {
-                val result = UndoGate.execute(this, engineManager)
-                if (result.executed) {
-                  LogCollector.log("dsh-watchdog", "auto-undo ok -> " + (result.snapshotId ?: "?"))
-                  engineManager.resetCooldown()
-                  engineManager.startEngine()
-                } else {
-                  LogCollector.log("dsh-watchdog", "auto-undo not executed: " + result.summary.take(160))
-                }
-              }.start()
-            }
-            LogCollector.log("dsh-watchdog", "restart attempt after failure #" + WatchdogV2.consecutiveFailures + " (backoff: " + WatchdogV2.nextDelayMs() + "ms advisory)")
+            LogCollector.log("dsh-watchdog", "keep-alive restart attempt after failure #" + WatchdogV2.consecutiveFailures)
           }
         }, 5, 5, TimeUnit.SECONDS)
       }
