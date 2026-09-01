@@ -106,6 +106,11 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 - **避坑**：`user-select: none` 必须加 `-webkit-user-select: none` 才能在华为 WebView 114 生效；所有例外规则必须带 `!important`。
 - **禁止**：不要给 touch 事件加 `{ passive: true }`——非 passive 才能调用 `preventDefault()` 拦截长按。
 
+### 3.9 pwsh 工具调用参数纪律（严防参数缺失）
+- **核心要求**：调用 `pwsh` 工具时，**必须同时提供 `command` 和 `description` 两个必填参数**，且两个字段均不能为空。
+- **严禁**：只传 `description`（如仅写 `"Check git status..."`）而遗漏 `command` 字段，否则会直接触发 JSON Schema 校验失败（`Error: invalid arguments: missing required property "command"`）。
+- **执行原则**：先确定待执行的具体 PowerShell 命令字符串写入 `command`，再补充简短描述写入 `description`。
+
 ---
 
 ## 4. 文件落点
