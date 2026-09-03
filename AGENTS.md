@@ -121,7 +121,7 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 ### 3.10 【已定位根因并修复 2026-09-03】pkg 安装覆盖引擎 mmap 共享库 -> 引擎 SIGBUS 崩溃
 - **真实根因（logcat + 会话日志 + 源码实证）**：旧「被 interrupted」是表象——TermuxPackageManager.extractTar() 解压 .deb 时用 target.outputStream() **直接 truncate 覆盖写** $PREFIX 下文件。引擎 node 运行时就 mmap 着 usr/lib 下的共享库；python 依赖链重装 libicu -> 覆盖 libicudata.so.78.3 / libicui18n.so.78.3 -> 运行中引擎 SIGBUS(BUS_ADRERR) 崩（logcat: libc Fatal signal 7, backtrace 在 libicui18n）；写入中断还留半写坏 so（linker CANNOT LINK invalid shdr）。bash 子进程脱离引擎继续装完 -> 现象「工具 interrupted 但包已装好」。session.jsonl 里的 interrupted-tool-result 是崩溃后 dsh-session repair.js 合成的闭合事件（time 复用最后事件），非实时取消。
 - **修复**：extractTar() 文件写入改为**原子替换**（同目录 tmp + Files.move ATOMIC_MOVE / REPLACE_EXISTING），旧 inode 不动 -> 运行中引擎不崩、无半写坏态。改动 TermuxPackageManager.kt（v0.13.4）。
-- **验证**：对运行中引擎 mmap 的 libicudata 做 tmp+rename 替换模拟，引擎 pid 不变、3080 存活（_interrupt_diag/reg-atomic2.ps1）。
+- **验证**：对运行中引擎 mmap 的 libicudata 做 tmp+rename 替换模拟 + `pkg reinstall libicu` 真机复测（全新安装后同依赖树重装 libicu），引擎 pid 不变、3080 全程存活；取证脚本已清理不入库。
 - **残余建议（未实施）**：readBaseInstalled 未把快照预装引擎核心库（libicu 等）视为已装，依赖解析会重复下载重装；可纳入 installed 判定减少无谓覆盖。
 - **排查工具**：adb logcat -d -T 查 libc Fatal signal / linker CANNOT LINK；会话尾部合成事件 time = 最后真实事件 time；桌面 python zstandard 解压 session.jsonl.zstd。
 
@@ -149,7 +149,7 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 | `app/src/main/assets/mobile-polish/lib/client.js` | 手机端 UI 深度适配（早期已封版） |
 | `app/src/main/assets/patched/web-frontend-index.html` | `data-dsh-immersive` 默认关闭（`=== "1"`） |
 | `app/src/main/assets/snapshot.tar.xz` / `.sha256` | arm64 运行时快照 + 指纹（必须成对） |
-| `CHANGES.md` / `TEST_REPORT.md` | 变更记录 / 测试报告 |
+| `CHANGES.md` | 变更记录（含 v0.13.4 SIGBUS 修复） |
 | `C:\Users\XIAOPAN\Desktop\dsh\cdp-probe.js` | 桌面端 CDP 探针脚本 |
 
 ---

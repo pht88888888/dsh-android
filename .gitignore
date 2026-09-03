@@ -11,3 +11,13 @@ token*
 *.pem
 *.p12
 .kotlin/
+
+# —— 调试残留 / 取证产物（2026-09-03 清理后加固）——
+cdp-*.js
+ui_dump.xml
+screenshot.png
+phone_db.sqlite
+dsh-session-*/
+_mobile_session_inspect/
+_interrupt_diag/
+projects/
