@@ -54,7 +54,7 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 
 - ✅ **`dsh-mobile-persona` 系统提示词完整重写**（`app/src/main/assets/dsh-mobile-persona/`）：注入 order -1000 的完整中文 persona（身份 DeepCode / Android 环境 / 包管理守则 / 图视频生成 / 工作方式 / 中文语言），agent 据此自动用 `pkg` 装包、不用 apt/pip、pkg show 验证包名、中文思考。
 - ✅ **agent-loop 并行度 patch**（`app/src/main/assets/patched/agent-loop-index.js`）：`maxParallelToolCalls` 默认 10→1，同一步多个 bash 改串行排队执行（`applyRuntimePatches` 覆盖引擎文件 `dsh-agent-loop/lib/index.js`）。
-- ⚠️ **已知问题：新会话首回合（seed turn 1）bash 长命令被 interrupted**——详见 §3.10。
+- ✅ **已修复（v0.13.4）：「新会话首回合 pkg 安装被 interrupted」根因定位为 pkg 解压覆盖引擎 mmap 共享库导致引擎 SIGBUS 崩溃**——extractTar 改原子替换写入后真机复测通过（同依赖树重装 libicu 不再崩溃），详见 §3.10。
 
 ---
 
@@ -118,12 +118,12 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 - **严禁**：只传 `description`（如仅写 `"Check git status..."`）而遗漏 `command` 字段，否则会直接触发 JSON Schema 校验失败（`Error: invalid arguments: missing required property "command"`）。
 - **执行原则**：先确定待执行的具体 PowerShell 命令字符串写入 `command`，再补充简短描述写入 `description`。
 
-### 3.10 已知问题：新会话首回合（seed turn 1）bash 长命令被 interrupted（2026-09-03）
-
-- **现象**：新开会话的第一条消息若让 agent 用 bash 跑长命令（`pkg install` 等），回合在命令发出后**秒级**被引擎取消（session.jsonl 里 `tool/result` 返回 `interrupted-tool-result`、`turn/end reason: interrupted`）。**bash 子进程仍会跑完**（换会话 `pkg list-installed` 可查「已装」）。
-- **规律**（真机多次实测）：失败全在 **turn 1**；同会话后续回合（turn 2+）100% 正常。移除 `dsh-mobile-persona` 不复现中断（但 agent 会走错工具选 termux 通道要授权）；移除 agent-loop patch 也不消除；`complete:true` 无关。疑似 dsh 引擎 seed 首回合与 bash 工具 dispatch 的交互缺陷，**尚未定位到 abort 信号源**（agent-loop 源码 `.cancel()` 仅 dispose 一处，signal 来自宿主层）。
-- **建议**：① 用户若首回合遇中断，直接在新回合（或换会话）重发即可，包通常已装上；② 继续排查方向：抓 turn 1 工具 dispatch 时引擎宿主（web/session 层）的 cancel/abort 调用、approval `ask` 策略在 seed 回合的处理。
-- **验证回合结果的方法**：解压 `files/home/.dsh/sessions/*/session.jsonl.zstd`（设备端 `usr/bin/unzstd` 缺 `libzstd.so.1`，桌面用 python `zstandard` 的 `stream_reader`），看 `turn/end` 的 `reason`（`completed` / `interrupted`）。
+### 3.10 【已定位根因并修复 2026-09-03】pkg 安装覆盖引擎 mmap 共享库 -> 引擎 SIGBUS 崩溃
+- **真实根因（logcat + 会话日志 + 源码实证）**：旧「被 interrupted」是表象——TermuxPackageManager.extractTar() 解压 .deb 时用 target.outputStream() **直接 truncate 覆盖写** $PREFIX 下文件。引擎 node 运行时就 mmap 着 usr/lib 下的共享库；python 依赖链重装 libicu -> 覆盖 libicudata.so.78.3 / libicui18n.so.78.3 -> 运行中引擎 SIGBUS(BUS_ADRERR) 崩（logcat: libc Fatal signal 7, backtrace 在 libicui18n）；写入中断还留半写坏 so（linker CANNOT LINK invalid shdr）。bash 子进程脱离引擎继续装完 -> 现象「工具 interrupted 但包已装好」。session.jsonl 里的 interrupted-tool-result 是崩溃后 dsh-session repair.js 合成的闭合事件（time 复用最后事件），非实时取消。
+- **修复**：extractTar() 文件写入改为**原子替换**（同目录 tmp + Files.move ATOMIC_MOVE / REPLACE_EXISTING），旧 inode 不动 -> 运行中引擎不崩、无半写坏态。改动 TermuxPackageManager.kt（v0.13.4）。
+- **验证**：对运行中引擎 mmap 的 libicudata 做 tmp+rename 替换模拟，引擎 pid 不变、3080 存活（_interrupt_diag/reg-atomic2.ps1）。
+- **残余建议（未实施）**：readBaseInstalled 未把快照预装引擎核心库（libicu 等）视为已装，依赖解析会重复下载重装；可纳入 installed 判定减少无谓覆盖。
+- **排查工具**：adb logcat -d -T 查 libc Fatal signal / linker CANNOT LINK；会话尾部合成事件 time = 最后真实事件 time；桌面 python zstandard 解压 session.jsonl.zstd。
 
 ### 3.11 杂项踩坑（2026-09-03 实测）
 - **`run-as` 无法写 app data**：`adb shell run-as <pkg> cat > files/...` 报 `Permission denied`（FBE/SELinux 限制，读可以写不行）。还原 `files/home/.dsh` 配置要用**引擎侧途径**：POST `http://127.0.0.1:3080/ag-config/api` `{"method":"set","patch":{"accounts":[{endpoint,key}]}}`（agconfig 自动写 credentials + settings.yaml）。
@@ -144,6 +144,8 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 | `app/src/main/assets/patched/agent-loop-index.js` | agent-loop 并行度 patch（`maxParallelToolCalls` 默认 10→1，同一步多 bash 串行；`applyRuntimePatches` 覆盖引擎文件） |
 | `app/src/main/assets/patched/dsh-android-bridge-index.js` | pkg 命令 → Kotlin HTTP 后台 job 路由 + ADB 授权桥 patch（部署到 profiles 下 @dsh-android/dsh-android-bridge） |
 | `app/src/main/java/com/dshmobile/shell/EngineManager.kt` | `deployAgPlugins()`（5 插件，含 dsh-mobile-persona）+ `deployBundledPptSkill()` + `deployPackageClient()` + `applyRuntimePatches()`（含 agent-loop patch）+ `deployMobilePolish()` + `fixDshBin()` |
+| `app/src/main/java/com/dshmobile/shell/TermuxPackageManager.kt` | Android 原生 Termux 包安装器（镜像索引/依赖解析/deb 解压/状态管理；v0.13.4 起解压改**原子替换写入**，防止覆盖引擎 mmap 共享库） |
+| `app/src/main/java/com/dshmobile/shell/TermuxPackageService.kt` | pkg 本地 HTTP 服务（127.0.0.1 随机端口 + token，endpoint 文件 files/.dsh-pkg-endpoint） |
 | `app/src/main/assets/mobile-polish/lib/client.js` | 手机端 UI 深度适配（早期已封版） |
 | `app/src/main/assets/patched/web-frontend-index.html` | `data-dsh-immersive` 默认关闭（`=== "1"`） |
 | `app/src/main/assets/snapshot.tar.xz` / `.sha256` | arm64 运行时快照 + 指纹（必须成对） |

@@ -342,9 +342,28 @@ class TermuxPackageManager(private val prefix: File) {
               if (current.size > MAX_ENTRY_BYTES || totalBytes + current.size > MAX_ARCHIVE_BYTES) {
                 throw SecurityException("package archive is too large")
               }
-              target.outputStream().use { output -> stream.copyTo(output) }
+              // 原子替换写入（2026-09-03 崩溃修复）：绝不能 truncate 覆盖写目标路径。
+              // 引擎 node 运行时就 mmap 着 $PREFIX/lib 下的共享库（libicudata/libicui18n 等，
+              // python 依赖链会重装 libicu）。直接覆盖写会让运行中引擎 SIGBUS(BUS_ADRERR)
+              // 崩溃；写入中途被打断还会留下半写坏的 .so（linker "invalid shdr offset/size"，
+              // 引擎重启 CANNOT LINK——logcat 实测 22:16:27 双故障）。改为：写同目录临时
+              // 文件 → rename 原子替换。旧 inode 不被改动：运行中进程继续用完整旧映射，
+              // 新进程加载完整新文件；中断只留下 tmp（finally 清理），目标文件要么旧要么新。
+              val tmp = File(target.parentFile, "." + target.name + ".pkgtmp-" + java.util.UUID.randomUUID().toString().take(8))
+              try {
+                tmp.outputStream().use { output -> stream.copyTo(output) }
+                if ((current.mode and 0x49) != 0) tmp.setExecutable(true, false)
+                try {
+                  Files.move(tmp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                  Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                }
+              } finally {
+                if (tmp.exists()) tmp.delete()
+              }
               totalBytes += current.size
-              if ((current.mode and 0x49) != 0) target.setExecutable(true, false)
             }
           }
           installed += "/$relative"

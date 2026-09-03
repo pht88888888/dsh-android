@@ -1,5 +1,17 @@
 # dsh-mobile-apk 变更记录
 
+## v0.13.4 — 2026-09-03
+
+### 修复：pkg 安装覆盖引擎 mmap 共享库导致引擎 SIGBUS 崩溃（§3.10 根因落定）
+
+根因（logcat + 会话日志 + 源码三方实证）：TermuxPackageManager.extractTar 解压 deb 时用 target.outputStream 直接 truncate 覆盖写 PREFIX 下目标文件。引擎 node 运行时正 mmap 着 usr/lib 下的共享库（python 依赖链重装 libicu，覆盖 libicudata.so.78.3 / libicui18n.so.78.3），运行中引擎 SIGBUS(BUS_ADRERR) 崩溃（libc Fatal signal 7，栈在 libicui18n）；写入中断还留下半写坏 so（linker CANNOT LINK: invalid shdr offset/size）。bash 子进程脱离引擎继续装完，现象即「工具被 interrupted（实为崩溃后 repair.js 合成 interrupted-tool-result 闭合日志），但包已装好」。
+
+修复：extractTar 文件写入改为原子替换——写同目录临时文件后 Files.move(ATOMIC_MOVE, REPLACE_EXISTING)（不支持原子移动则回退普通 move）。旧 inode 不被改动：运行中进程继续用完整旧映射不崩溃；新进程加载完整新文件；中断只留 tmp（finally 清理）。改动：app/src/main/java/com/dshmobile/shell/TermuxPackageManager.kt。
+
+**验证（2026-09-03 真机实测通过）**：全新安装后首次 pkg install python-lxml python-pillow，依赖树再次真实重装 libicu（原崩溃路径）——全程无中断、引擎存活、29 秒完成；python-lxml 6.1.3 / python-pillow 12.3.0；logcat 零崩溃标记。
+
+相关改进建议（未实施）：readBaseInstalled 未把快照预装的引擎核心库（libicu 等）视为已安装，依赖解析会重复下载重装引擎同路径库；可将快照自带 dpkg 基线纳入 installed 判定，避免无谓覆盖（原子替换后仅剩版本翻新语义，已不致命）。
+
 ## v0.13.3 — 2026-09-03
 
 ### 新增功能
