@@ -5,7 +5,12 @@ import android.media.MediaScannerConnection
 import android.os.Environment
 import android.util.Log
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.FileOutputStream
 import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.zip.ZipInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
@@ -33,6 +38,13 @@ class EngineManager(private val context: Context, private val pickToken: String?
     }
   private val nodeBin = File(usrDir, "bin/node")
   private val dshBin = File(usrDir, "lib/node_modules/@deepseek-ai/dsh/lib/bin.js")
+  private val pkgClientAsset = "pkg-android.js"
+  private val pkgClientFile = File(context.filesDir, pkgClientAsset)
+  private val pptSetupAsset = "setup_ppt_env.sh"
+  private val pptSetupFile = File(homeDir, ".dsh/tools/$pptSetupAsset")
+  private val pptSkillSetupFile = File(homeDir, ".dsh/skills/ppt-master/scripts/$pptSetupAsset")
+  private val pptSkillDir = File(homeDir, ".dsh/skills/ppt-master")
+  private val pptSkillMarker = File(pptSkillDir, ".dsh-bundled-sha256")
   private var engineProcess: Process? = null
 
   /** Consecutive healthy probe ticks since the last update swap (update-v2 confirmation state). */
@@ -390,7 +402,13 @@ class EngineManager(private val context: Context, private val pickToken: String?
   private fun applyRuntimePatches() {
     val dshPkgs = File(usrDir, "lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai")
     val webDist = File(dshPkgs, "dsh-web-frontend/dist")
+     val androidBridge = File(homeDir, ".dsh/profiles/web/node_modules/@dsh-android/dsh-android-bridge/lib/index.js")
     val home = File(homeDir, ".dsh")
+     applyAssetPatch("patched/dsh-android-bridge-index.js", androidBridge)
+    // 修复同一步多个 bash 并行导致回合被中断：把 agent-loop 默认工具并行度降为 1
+    // （同一步的工具调用串行执行，一个完成后再启动下一个），见 patched/agent-loop-index.js。
+    applyAssetPatch("patched/agent-loop-index.js",
+      File(dshPkgs, "dsh-agent-loop/lib/index.js"))
     // v0.12.4 (rc8) migration: onImagePicked/describeImage/bundle-hardening/textzoom patches
     // were removed — rc8's official native image request (serializeRequestWithImages) and no-cache
     // hardening cover them; the textzoom feature was dropped after the settings-general rework
@@ -556,7 +574,7 @@ class EngineManager(private val context: Context, private val pickToken: String?
   private fun deployAgPlugins() {
     val profileModules = File(homeDir, ".dsh/profiles/web/node_modules")
     val patch = File(homeDir, ".dsh/profiles/web/cordis.patch.yml")
-    for (name in listOf("dsh-agconfig", "dsh-agimage", "dsh-agvideo", "dsh-zh-mode")) {
+    for (name in listOf("dsh-agconfig", "dsh-agimage", "dsh-agvideo", "dsh-zh-mode", "dsh-mobile-persona")) {
       val pkgRoot = File(profileModules, name)
       for ((rel, asset) in listOf(
         "package.json" to "$name/package.json",
@@ -576,8 +594,133 @@ class EngineManager(private val context: Context, private val pickToken: String?
       }
       applyAssetPatchAppend("$name/cordis.append.yml", patch, name)
     }
+
+    // 确保 .credentials.yaml 权限为 600（owner-only），否则 credentials-local 拒绝加载导致引擎挂掉
+    val credFile = File(homeDir, ".dsh/.credentials.yaml")
+    if (credFile.exists()) {
+      credFile.setReadable(false, false)
+      credFile.setReadable(true, true)
+      credFile.setWritable(false, false)
+      credFile.setWritable(true, true)
+    }
   }
 
+
+  /** Deploy the embedded PPT Master skill into DSH's canonical global skills directory. */
+  private fun deployBundledPptSkill() {
+    val staging = File(homeDir, ".dsh/skills/.ppt-master-${UUID.randomUUID()}")
+    try {
+      val expected = context.assets.open("ppt_master.sha256").bufferedReader().use { it.readText().trim().lowercase() }
+      if (expected.isBlank()) throw IllegalStateException("ppt_master.sha256 is empty")
+      if (pptSkillMarker.isFile && pptSkillMarker.readText().trim().lowercase() == expected &&
+        File(pptSkillDir, "SKILL.md").isFile) return
+
+      staging.deleteRecursively()
+      staging.mkdirs()
+      val zipBytes = context.assets.open("ppt_master.zip").use { it.readBytes() }
+      val actual = MessageDigest.getInstance("SHA-256").digest(zipBytes)
+        .joinToString("") { "%02x".format(it) }
+      if (actual != expected) throw SecurityException("ppt-master archive SHA-256 mismatch")
+      ZipInputStream(ByteArrayInputStream(zipBytes).buffered()).use { zip ->
+          var entry = zip.nextEntry
+          var count = 0
+          var bytes = 0L
+          while (entry != null) {
+            count++
+            if (count > 20_000) throw SecurityException("ppt-master archive has too many entries")
+            val raw = entry!!.name.replace('\\', '/')
+            val relative = raw.trimStart('/')
+            if (relative.isEmpty() || relative.split('/').any { it == ".." }) {
+              throw SecurityException("unsafe ppt-master archive path: $raw")
+            }
+            val target = File(staging, relative)
+            val base = staging.canonicalFile
+            if (!target.canonicalFile.path.startsWith(base.path + File.separator)) {
+              throw SecurityException("ppt-master archive escapes staging directory")
+            }
+            if (entry!!.isDirectory) {
+              target.mkdirs()
+            } else {
+              target.parentFile?.mkdirs()
+              FileOutputStream(target).use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                  val n = zip.read(buffer)
+                  if (n < 0) break
+                  bytes += n
+                  if (bytes > 32L * 1024 * 1024) throw SecurityException("ppt-master archive is too large")
+                  output.write(buffer, 0, n)
+                }
+              }
+            }
+            zip.closeEntry()
+            entry = zip.nextEntry
+          }
+        }
+      val skill = File(staging, "SKILL.md")
+      if (!skill.isFile) throw IllegalStateException("ppt-master archive has no SKILL.md")
+      // The bundled phone skill uses a portable data-root placeholder.
+      // Resolve it to this app's DSH_HOME parent before activation.
+      val dataRoot = File(homeDir, ".dsh").absolutePath
+      staging.walkTopDown().filter { it.isFile && (it.extension == "md" || it.extension == "sh") }.forEach { file ->
+        val text = file.readText()
+        if (text.contains("${'$'}{DATA_DIR}")) file.writeText(text.replace("${'$'}{DATA_DIR}", dataRoot))
+      }
+      val old = File(homeDir, ".dsh/skills/ppt-master.old")
+      old.deleteRecursively()
+      pptSkillDir.parentFile?.mkdirs()
+      if (pptSkillDir.exists() && !pptSkillDir.renameTo(old)) {
+        throw IllegalStateException("cannot stage existing ppt-master skill")
+      }
+      if (!staging.renameTo(pptSkillDir)) {
+        if (old.exists()) old.renameTo(pptSkillDir)
+        throw IllegalStateException("cannot activate bundled ppt-master skill")
+      }
+      pptSkillMarker.parentFile?.mkdirs()
+      pptSkillMarker.writeText(expected + "\n")
+      old.deleteRecursively()
+      Log.i(TAG, "bundled ppt-master skill deployed")
+    } catch (t: Throwable) {
+      staging.deleteRecursively()
+      Log.e(TAG, "bundled ppt-master deploy failed", t)
+    }
+  }
+
+  /** Deploy the Android package client and PPT environment helper. */
+  private fun deployPackageClient() {
+    try {
+      val clientBytes = context.assets.open(pkgClientAsset).use { it.readBytes() }
+      if (!pkgClientFile.exists() || !pkgClientFile.readBytes().contentEquals(clientBytes)) {
+        pkgClientFile.parentFile?.mkdirs()
+        pkgClientFile.writeBytes(clientBytes)
+        pkgClientFile.setReadable(false, false)
+        pkgClientFile.setReadable(true, true)
+      }
+
+      val pkgWrapper = File(usrDir, "bin/pkg")
+      val wrapper = "#!/system/bin/sh\n" +
+        "exec \"${nodeBin.absolutePath}\" \"${pkgClientFile.absolutePath}\" \"\$@\"\n"
+      val wrapperNeedsUpdate = Files.isSymbolicLink(pkgWrapper.toPath()) ||
+        !pkgWrapper.exists() || pkgWrapper.readText() != wrapper
+      if (wrapperNeedsUpdate) {
+        if (Files.isSymbolicLink(pkgWrapper.toPath())) Files.delete(pkgWrapper.toPath())
+        pkgWrapper.parentFile?.mkdirs()
+        pkgWrapper.writeText(wrapper)
+        if (!pkgWrapper.setExecutable(true, false)) Log.w(TAG, "pkg wrapper chmod failed")
+      }
+
+      val setupBytes = context.assets.open(pptSetupAsset).use { it.readBytes() }
+      for (target in listOf(pptSetupFile, pptSkillSetupFile)) {
+        if (!target.exists() || !target.readBytes().contentEquals(setupBytes)) {
+          target.parentFile?.mkdirs()
+          target.writeBytes(setupBytes)
+          if (!target.setExecutable(true, false)) Log.w(TAG, "PPT setup chmod failed: " + target)
+        }
+      }
+    } catch (t: Throwable) {
+      Log.e(TAG, "Android package client deploy failed", t)
+    }
+  }
 
   /**
    * 修复 usr/bin/dsh（2026-08-26，插件市场安装失败根因）：
@@ -607,11 +750,13 @@ class EngineManager(private val context: Context, private val pickToken: String?
 
   /** Start the dsh web engine from the embedded snapshot. */
   fun startEngine(port: Int = 3080): Boolean {
-    // Bundled presets must be in place before every start attempt (idempotent;
-    // also covers the upgrade-with-running-engine case via the cooldown bypass path).
+    // Bundled presets and Android-side helpers must be in place before every
+    // start attempt, including watchdog restarts after a runtime update.
     deployBundledPresets()
+    deployBundledPptSkill()
     deployMobilePolish()
     deployAgPlugins()
+    deployPackageClient()
     fixDshBin()
     // LD_PRELOAD depends on the snapshot's termux-exec lib: when missing, every child exec fails,
     // and combined with the cooldown window that means a silent 90s engine outage — assert explicitly
@@ -796,7 +941,14 @@ class EngineManager(private val context: Context, private val pickToken: String?
    * safe to call repeatedly (ensurePrivateDshData and the TMPDIR mkdirs are both idempotent).
    */
   fun shellEnv(): Map<String, String> {
+    deployPackageClient()
     val preload = File(usrDir, "lib/libtermux-exec-ld-preload.so")
+    val pkgEndpoint = try {
+      TermuxPackageService.ensure(context, usrDir)
+    } catch (t: Throwable) {
+      Log.w(TAG, "package service unavailable: " + (t.message ?: t.javaClass.simpleName))
+      null
+    }
     // Cert paths hardcoded at Termux package build time (/data/data/com.termux/...) break after the
     // PREFIX relocation; relocate-snapshot.py doesn't rewrite ELF, so env vars cover the functional
     // paths — curl/wget/git https CA validation depends on them (v0.12.3-FX-2).
@@ -814,6 +966,7 @@ class EngineManager(private val context: Context, private val pickToken: String?
       )
     } else emptyMap()
     return mapOf(
+      "PREFIX" to usrDir.absolutePath,
       "PATH" to (usrDir.absolutePath + "/bin:/system/bin"),
       "LD_LIBRARY_PATH" to (usrDir.absolutePath + "/lib"),
       "HOME" to homeDir.absolutePath,
@@ -838,6 +991,11 @@ class EngineManager(private val context: Context, private val pickToken: String?
       "TERMUX_APP__DATA_DIR" to context.filesDir.parentFile.absolutePath,
       "TERMUX_APP__LEGACY_DATA_DIR" to "/data/data/com.dsharnessmobile.shell",
       "TERMUX_VERSION" to BuildConfig.TERMUX_VERSION,
+      // Android-native package service: pkg wrapper talks only to this process-local endpoint.
+      "DSH_PKG_URL" to (pkgEndpoint?.url ?: ""),
+      "DSH_PKG_TOKEN" to (pkgEndpoint?.token ?: ""),
+      "DSH_PKG_ENDPOINT" to File(context.filesDir, ".dsh-pkg-endpoint").absolutePath,
+      "DPKG_ADMINDIR" to File(usrDir, "var/lib/dpkg").absolutePath,
       // Directory-picker endpoint auth token (validated by the web-compat plugin via x-dsh-pick-token).
       "DSH_PICK_TOKEN" to (pickToken ?: ""),
       // ADB 授权状态（0.13.0 F1.7）：dsh-android-bridge 插件据此失败关闭；门控=完全访问档位+开关+配对。

@@ -1,0 +1,4 @@
+# 移动端系统提示词（dsh-mobile-persona）：注入 complete 段替换引擎默认人格/身份。
+- insert:
+    - id: mobile-persona
+      name: 'dsh-mobile-persona'

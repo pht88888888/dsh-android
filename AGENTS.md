@@ -25,7 +25,7 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 
 ---
 
-## 2. 当前任务进度（2026-08-31 刷新）
+## 2. 当前任务进度（2026-09-03 刷新）
 
 > §2 依 git 与真机实测更新。早期 UI 适配（审批卡片上浮、设置页改造、状态栏/edge-to-edge、头部重构等）早已在 git `081c42d`/`3fa7e6f`/`990227d` 等提交封版，真机验收通过，不再赘述。项目重心在 **Agnes AI 多模态插件生态 + LLM 自动注册**。
 
@@ -42,12 +42,19 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 
 ### 2.2 已落地（未提交）
 
-- ✅ **`deployAgPlugins()`**（`EngineManager.kt`）：启动时把 4 个 Agnes 插件部署到 `$HOME/.dsh/profiles/web/node_modules/` 并在 `cordis.patch.yml` 追加挂载（幂等：content-fingerprint + marker），插件：
+- ✅ **`deployAgPlugins()`**（`EngineManager.kt`）：启动时把 5 个插件部署到 `$HOME/.dsh/profiles/web/node_modules/` 并在 `cordis.patch.yml` 追加挂载（幂等：content-fingerprint + marker），插件：
   - `dsh-agconfig` — 多模态配置（账号池）→ 持久化 `ag-multimodal.json` + 自动写 credentials + settings.yaml
   - `dsh-agimage` — 常驻 `generate_image` 模型工具（读 `ag-multimodal.json` 账号，未配回退默认号）
   - `dsh-agvideo` — 常驻 `generate_video` 模型工具（text/keyframe/reference 三模式）
   - `dsh-zh-mode` — 中文模式开关（systemPrompt.section order -50 注入中文 persona）
+  - `dsh-mobile-persona` — 移动端系统提示词完整重写（systemPrompt.section order -1000，见 §2.3）
 - ✅ 真机实测：引擎启动正常，端口 3080 监听，CDP 可连接，Agnes 出现在模型选择器，对话功能正常
+
+### 2.3 ✅ 已落地（2026-09-03 提交）：移动端 persona + agent-loop 串行 patch
+
+- ✅ **`dsh-mobile-persona` 系统提示词完整重写**（`app/src/main/assets/dsh-mobile-persona/`）：注入 order -1000 的完整中文 persona（身份 DeepCode / Android 环境 / 包管理守则 / 图视频生成 / 工作方式 / 中文语言），agent 据此自动用 `pkg` 装包、不用 apt/pip、pkg show 验证包名、中文思考。
+- ✅ **agent-loop 并行度 patch**（`app/src/main/assets/patched/agent-loop-index.js`）：`maxParallelToolCalls` 默认 10→1，同一步多个 bash 改串行排队执行（`applyRuntimePatches` 覆盖引擎文件 `dsh-agent-loop/lib/index.js`）。
+- ⚠️ **已知问题：新会话首回合（seed turn 1）bash 长命令被 interrupted**——详见 §3.10。
 
 ---
 
@@ -111,6 +118,18 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 - **严禁**：只传 `description`（如仅写 `"Check git status..."`）而遗漏 `command` 字段，否则会直接触发 JSON Schema 校验失败（`Error: invalid arguments: missing required property "command"`）。
 - **执行原则**：先确定待执行的具体 PowerShell 命令字符串写入 `command`，再补充简短描述写入 `description`。
 
+### 3.10 已知问题：新会话首回合（seed turn 1）bash 长命令被 interrupted（2026-09-03）
+
+- **现象**：新开会话的第一条消息若让 agent 用 bash 跑长命令（`pkg install` 等），回合在命令发出后**秒级**被引擎取消（session.jsonl 里 `tool/result` 返回 `interrupted-tool-result`、`turn/end reason: interrupted`）。**bash 子进程仍会跑完**（换会话 `pkg list-installed` 可查「已装」）。
+- **规律**（真机多次实测）：失败全在 **turn 1**；同会话后续回合（turn 2+）100% 正常。移除 `dsh-mobile-persona` 不复现中断（但 agent 会走错工具选 termux 通道要授权）；移除 agent-loop patch 也不消除；`complete:true` 无关。疑似 dsh 引擎 seed 首回合与 bash 工具 dispatch 的交互缺陷，**尚未定位到 abort 信号源**（agent-loop 源码 `.cancel()` 仅 dispose 一处，signal 来自宿主层）。
+- **建议**：① 用户若首回合遇中断，直接在新回合（或换会话）重发即可，包通常已装上；② 继续排查方向：抓 turn 1 工具 dispatch 时引擎宿主（web/session 层）的 cancel/abort 调用、approval `ask` 策略在 seed 回合的处理。
+- **验证回合结果的方法**：解压 `files/home/.dsh/sessions/*/session.jsonl.zstd`（设备端 `usr/bin/unzstd` 缺 `libzstd.so.1`，桌面用 python `zstandard` 的 `stream_reader`），看 `turn/end` 的 `reason`（`completed` / `interrupted`）。
+
+### 3.11 杂项踩坑（2026-09-03 实测）
+- **`run-as` 无法写 app data**：`adb shell run-as <pkg> cat > files/...` 报 `Permission denied`（FBE/SELinux 限制，读可以写不行）。还原 `files/home/.dsh` 配置要用**引擎侧途径**：POST `http://127.0.0.1:3080/ag-config/api` `{"method":"set","patch":{"accounts":[{endpoint,key}]}}`（agconfig 自动写 credentials + settings.yaml）。
+- 覆盖安装（`adb install -r`）**不会移除** cordis.patch.yml 里已挂载的插件条目；要真正去掉某插件需卸载重装。
+- 二进制经 PowerShell 重定向会被破坏；`adb exec-out ... > file` 必须用 `cmd /c` 包裹。
+
 ---
 
 ## 4. 文件落点
@@ -121,7 +140,10 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 | `app/src/main/assets/dsh-agimage/*` | 常驻图片生成工具（`generate_image`，读 ag-multimodal.json） |
 | `app/src/main/assets/dsh-agvideo/*` | 常驻视频生成工具（`generate_video`，text/keyframe/reference） |
 | `app/src/main/assets/dsh-zh-mode/*` | 中文模式开关（systemPrompt 段注入） |
-| `app/src/main/java/com/dshmobile/shell/EngineManager.kt` | `deployAgPlugins()`（L547-580）+ `deployMobilePolish()` + `fixDshBin()` |
+| `app/src/main/assets/dsh-mobile-persona/*` | **移动端系统提示词完整重写**（DeepCode persona：身份/安卓环境/包管理/图视频/工作守则/中文，systemPrompt.section order -1000） |
+| `app/src/main/assets/patched/agent-loop-index.js` | agent-loop 并行度 patch（`maxParallelToolCalls` 默认 10→1，同一步多 bash 串行；`applyRuntimePatches` 覆盖引擎文件） |
+| `app/src/main/assets/patched/dsh-android-bridge-index.js` | pkg 命令 → Kotlin HTTP 后台 job 路由 + ADB 授权桥 patch（部署到 profiles 下 @dsh-android/dsh-android-bridge） |
+| `app/src/main/java/com/dshmobile/shell/EngineManager.kt` | `deployAgPlugins()`（5 插件，含 dsh-mobile-persona）+ `deployBundledPptSkill()` + `deployPackageClient()` + `applyRuntimePatches()`（含 agent-loop patch）+ `deployMobilePolish()` + `fixDshBin()` |
 | `app/src/main/assets/mobile-polish/lib/client.js` | 手机端 UI 深度适配（早期已封版） |
 | `app/src/main/assets/patched/web-frontend-index.html` | `data-dsh-immersive` 默认关闭（`=== "1"`） |
 | `app/src/main/assets/snapshot.tar.xz` / `.sha256` | arm64 运行时快照 + 指纹（必须成对） |

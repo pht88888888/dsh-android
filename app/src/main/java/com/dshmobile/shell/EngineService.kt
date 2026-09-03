@@ -53,6 +53,7 @@ class EngineService : Service() {
   override fun onDestroy() {
     watchdog?.shutdownNow()
     watchdog = null
+    TermuxPackageService.stop()
     WatchdogV2.releaseWakeLock()
     if (instance === this) instance = null
     // Log collection stops when the service exits (in-process idempotent singleton; also stopped when the toggle is off).

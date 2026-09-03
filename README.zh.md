@@ -20,6 +20,8 @@
 
 - **内嵌运行时**：xz 快照（arm64 151.6MB / x86_64 158.9MB）内置 node + git + bash + coreutils +
   dsh + 插件 + pnpm + python/perl/ruby；首启解压 2-4 分钟，引擎监听 `127.0.0.1:3080`；完全离线；
+- **内置 PPT Master**：PPT Master 技能本体随 APK 分发，首次启动自动解压到 `$DSH_HOME/skills/ppt-master`；PPT 所需的
+  `lxml` / `Pillow` 等 Android 原生依赖通过内置 `pkg` 包管理器安装；
 - **文件直达会话（F5）**：「使用其他应用打开 / 分享」→ 自动跳转本应用 → 强制新建临时工作区
   会话处理文件；临时工作区 7 天 TTL 自动清理 + 工作区面板可见；
 - **搜索（grep/glob）**：移动端 ripgrep 平台包（android-arm64，pcre2/NEON 全特性）；

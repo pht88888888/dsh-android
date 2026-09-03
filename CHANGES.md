@@ -1,5 +1,39 @@
 # dsh-mobile-apk 变更记录
 
+## v0.13.3 — 2026-09-03
+
+### 新增功能
+
+#### 1. 移动端系统提示词完整重写（dsh-mobile-persona）
+
+针对手机环境定制 agent 的系统提示词（`systemPrompt.section` 注入，order -1000）：
+
+| 段落 | 内容 |
+|---|---|
+| 身份使命 | DeepCode · Android/Termux 运行时 · 全栈助手 |
+| (一) 运行环境 | Android/Termux、PREFIX/DSH_HOME 等变量、WebView zoom=3、SAF、冷启动时长 |
+| (二) 包管理 | 只用 `pkg`（update/install/show/list-installed/remove）；**严禁** apt/dpkg/pip；装原生 Python 库用 `pkg install python-<名>`；只装 aarch64；不确定包名先 `pkg show` 验证 |
+| (三) 图片/视频生成 | generate_image / generate_video（text/keyframe/reference 模式选法） |
+| (四) 工作方式 | 先读后改、查退出码、后台长任务、危险操作先问、同一步只发一个 bash |
+| (五) 语言 | 全程简体中文（回复与思考），代码/命令保留原文 |
+
+插件文件：`app/src/main/assets/dsh-mobile-persona/`（host 段 `lib/index.js` + 设置页 `lib/client.js`），随 `deployAgPlugins()` 部署挂载。
+
+#### 2. agent-loop 工具并行度降为 1（防同一步多 bash 中断）
+
+`app/src/main/assets/patched/agent-loop-index.js` 把引擎 `dsh-agent-loop` 的
+`maxParallelToolCalls` 默认 10 → 1（`applyRuntimePatches` 覆盖引擎文件）：同一步发出多个
+bash 时改为**串行排队执行**（前一个完成再启动下一个），不再并行抢占。
+
+### 已知问题（待修复）
+
+**新会话首回合（seed turn 1）的 bash 长命令会被 interrupted**：新开会话的第一条消息若让
+agent 执行安装类 bash 长命令（如 `pkg install`），回合在命令发出后立即被引擎取消
+（`turn/end reason: interrupted`），但 bash 子进程仍会继续跑完（换会话可查「已安装」）。
+同会话的后续回合（turn 2+）完全正常。与 mobile-persona 无关（移除后复现），与 agent-loop
+并行度 patch 无关（回退后复现）；疑似 dsh 引擎 seed 首回合与 bash 工具 dispatch 的交互
+问题。已试方向：complete:true 移除、agent-loop 并行度回退、提示词防并行——均未根治。
+
 ## v0.13.2 — 2026-08-31
 
 ### 新增功能

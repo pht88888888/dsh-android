@@ -27,6 +27,9 @@ version `0.13.0-preview` (versionCode 24).
 - **Embedded runtime** — xz snapshot (arm64 151.6 MB / x86_64 158.9 MB) bundling node + git + bash +
   coreutils + dsh + plugins + pnpm + python/perl/ruby; first launch extracts in 2–4 min, engine
   listens on `127.0.0.1:3080`; fully offline.
+- **Bundled PPT Master** — the PPT Master skill ships inside the APK and is extracted on first start to
+  `$DSH_HOME/skills/ppt-master`; native PPT dependencies such as `lxml` and `Pillow` are installed
+  through the bundled Android-compatible `pkg` manager.
 - **File-to-session (F5)** — "Open with / Share" auto-jumps into this app and forces a fresh temp
   workspace session for the file; temp workspaces get a 7-day TTL auto-cleanup and appear in the
   workspace panel.
