@@ -1,5 +1,20 @@
 # dsh-mobile-apk 变更记录
 
+## v0.13.5 — 2026-09-04
+
+### 性能：PPT 逐页 SVG 生成改为「父代理编排 + 子代理并行」fan-out（v0.13.4 分析 → 方案 → 落地）
+
+**背景（session 6e0c5f77 实测）**：7 页 PPT 主流程 19.6 分钟中，SVG 实现阶段 317s 的构成——写 7 页 SVG 143s（heredoc exec 仅 0.05–0.1s/页，几乎全为模型逐 token 生成时间）+ 质检修正 ~174s（模型反复 checker/grep/sed/补 spec_lock）。页面之间零数据依赖（只共享只读 spec_lock），是天然并行点；单页成本 = 模型纯生成 ~17–25s，20 页串行将达 400–500s。
+
+**改动（仅 assets/ppt_master.zip + .sha256，引擎零改动）**：
+1. `SKILL.md` — 铁律 6 由「逐页顺序生成/禁止批处理」改为「页面并行 fan-out」：并发上限 **5 子代理**，页数 ≤5 每代理 1 页、>5 每代理连续 ceil(N/5) 页；Step 5 重写为 T0（派发前准备：逐页 page brief + spec_lock 终态校验 + 分组）/ T1（同一回合后台 spawn，发完即放手等 notice）/ T2（通知驱动逐份预验收 + 仅 fail 页修复）；铁律 7 相应改「spec_lock 唯一取值源」。
+2. `references/page-brief-template.md`（新增）— 并行纪律 + 每页 brief 文件结构 + **子代理自足 prompt 模板**（子代理看不到父会话，prompt 必须携带项目路径/页号/brief 路径/硬性规范/自查清单）。
+3. `references/executor-base.md` — 新增 §0 并行模式说明（规范由各子代理执行；batch-read 语境差异；spec_lock 每代理 T0 读一次摊多页；自查归子代理、全量质检归父代理）。
+
+**部署机制**：EngineManager.deployBundledPptSkill 按 `ppt_master.sha256` 指纹幂等部署，marker 比对变化即原子重解压（含 ${DATA_DIR} 占位替换）。本次 zip 重打包后 hash 更新为 `b25882e8…`，真机已确认部署（marker/新文件/SKILL 均落盘）。
+
+**待用户实测**：并行 fan-out 实际收益、手机端 notice 唤醒、5×4 分组质量一致性。
+
 ## v0.13.4 — 2026-09-03
 
 ### 修复：pkg 安装覆盖引擎 mmap 共享库导致引擎 SIGBUS 崩溃（§3.10 根因落定）

@@ -25,7 +25,7 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 
 ---
 
-## 2. 当前任务进度（2026-09-03 刷新）
+## 2. 当前任务进度（2026-09-04 刷新）
 
 > §2 依 git 与真机实测更新。早期 UI 适配（审批卡片上浮、设置页改造、状态栏/edge-to-edge、头部重构等）早已在 git `081c42d`/`3fa7e6f`/`990227d` 等提交封版，真机验收通过，不再赘述。项目重心在 **Agnes AI 多模态插件生态 + LLM 自动注册**。
 
@@ -55,6 +55,12 @@ adb shell monkey -p com.dsharnessmobile.shell -c android.intent.category.LAUNCHE
 - ✅ **`dsh-mobile-persona` 系统提示词完整重写**（`app/src/main/assets/dsh-mobile-persona/`）：注入 order -1000 的完整中文 persona（身份 DeepCode / Android 环境 / 包管理守则 / 图视频生成 / 工作方式 / 中文语言），agent 据此自动用 `pkg` 装包、不用 apt/pip、pkg show 验证包名、中文思考。
 - ✅ **agent-loop 并行度 patch**（`app/src/main/assets/patched/agent-loop-index.js`）：`maxParallelToolCalls` 默认 10→1，同一步多个 bash 改串行排队执行（`applyRuntimePatches` 覆盖引擎文件 `dsh-agent-loop/lib/index.js`）。
 - ✅ **已修复（v0.13.4）：「新会话首回合 pkg 安装被 interrupted」根因定位为 pkg 解压覆盖引擎 mmap 共享库导致引擎 SIGBUS 崩溃**——extractTar 改原子替换写入后真机复测通过（同依赖树重装 libicu 不再崩溃），详见 §3.10。
+
+### 2.4 ✅ 已落地（2026-09-04）：PPT SVG 生成改并行 fan-out（v0.13.5，仅改 skill 打包物）
+
+- ✅ **逐页 SVG 生成并行化**（app/src/main/assets/ppt_master.zip，引擎零改动）：SKILL.md 铁律6 由「逐页顺序生成/禁止批处理」改为**并行 fan-out**——并发上限 5 子代理，页数 ≤5 每代理 1 页、>5 每代理连续 ceil(N/5) 页；Step 5 重写为 T0（派发前：逐页 page brief + spec_lock 终态校验）/ T1（同一回合后台 spawn 后放手等 notice）/ T2（通知驱动逐份预验收 + 仅 fail 页修复）。新增 references/page-brief-template.md（brief 结构 + 子代理自足 prompt 模板）；executor-base.md 增 §0 并行模式说明。
+- ✅ **动机（session 6e0c5f77 实测）**：7 页 PPT 中写 7 页 SVG 143s（heredoc exec 仅 0.05–0.1s/页，几乎全是模型逐 token 生成），20 页串行将达 400–500s；页面间零数据依赖（只共享只读 spec_lock）→ 天然并行。部署机制：zip 重打包 + sha256 更新 → EngineManager.deployBundledPptSkill 启动时 marker 比对自动重部署（真机已确认落盘，zip sha256 b25882e8）。
+- ⏳ **待用户实测**：并行收益、手机端 subagent notice 唤醒、5×4 分组一致性（详见 CHANGES v0.13.5）。
 
 ---
 
@@ -148,6 +154,7 @@ node -e "const ws=new (require('ws'))('$target'); ws.on('open',()=>{ws.send(JSON
 | `app/src/main/java/com/dshmobile/shell/TermuxPackageService.kt` | pkg 本地 HTTP 服务（127.0.0.1 随机端口 + token，endpoint 文件 files/.dsh-pkg-endpoint） |
 | `app/src/main/assets/mobile-polish/lib/client.js` | 手机端 UI 深度适配（早期已封版） |
 | `app/src/main/assets/patched/web-frontend-index.html` | `data-dsh-immersive` 默认关闭（`=== "1"`） |
+| `app/src/main/assets/ppt_master.zip` / `.sha256` | **PPT Master skill 打包物**（v0.13.5：铁律6 并行 fan-out + Step5 T0/T1/T2 + 新增 references/page-brief-template.md）；sha256 指纹驱动 EngineManager.deployBundledPptSkill 幂等部署 |
 | `app/src/main/assets/snapshot.tar.xz` / `.sha256` | arm64 运行时快照 + 指纹（必须成对） |
 | `CHANGES.md` | 变更记录（含 v0.13.4 SIGBUS 修复） |
 | `C:\Users\XIAOPAN\Desktop\dsh\cdp-probe.js` | 桌面端 CDP 探针脚本 |
